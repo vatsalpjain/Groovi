@@ -50,15 +50,18 @@ class MoodAnalyzer:
             Guidelines:
             - score: -1.0 to 1.0
             - mood_category: "Very Negative", "Negative", "Neutral", "Positive", "Very Positive"
-            - Also try to uplift the mood if negative
+            - Also try to uplift the mood if very negative
+            - If mood is negative, suggest soothing songs
             - summary: Positive, fun 80-120 words connecting mood to music
-            - 5 popular songs matching mood"""
+            - Also Don't repeat the songs again and again
+            - 5 popular songs matching mood
+            - also the 5 songs should have some correlation to each other"""
 
             response = self.groq.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
-                model="meta-llama/llama-4-maverick-17b-128e-instruct",
-                max_tokens=2048,
-                temperature=0.7
+                model="groq/compound",
+                max_tokens=1024,
+                temperature=0.5
             )
 
             response_text = response.choices[0].message.content.strip()
