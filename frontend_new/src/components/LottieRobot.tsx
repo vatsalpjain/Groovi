@@ -2,9 +2,11 @@ import Lottie from 'lottie-react';
 import type { LottieRefCurrentProps } from 'lottie-react';
 import { useEffect, useState, useImperativeHandle, forwardRef, useRef } from 'react';
 
+// Update the interface to accept mood:
 interface LottieRobotProps {
   className?: string;
   style?: React.CSSProperties;
+  mood?: string; // Add this
 }
 
 export interface LottieRobotHandle {
@@ -13,7 +15,7 @@ export interface LottieRobotHandle {
 }
 
 const LottieRobot = forwardRef<LottieRobotHandle, LottieRobotProps>(
-  ({ className = '', style = {} }, ref) => {
+  ({ className = '', style = {}, mood = 'neutral' }, ref) => {
     const [idleAnimation, setIdleAnimation] = useState(null);
     const [danceAnimation, setDanceAnimation] = useState(null);
     const [currentAnimation, setCurrentAnimation] = useState(null);
@@ -37,23 +39,40 @@ const LottieRobot = forwardRef<LottieRobotHandle, LottieRobotProps>(
         .catch(error => console.error('Error loading dance animation:', error));
     }, []);
 
+    // Add function to get animation speed based on mood:
+    const getAnimationSpeed = (moodCategory: string): number => {
+      const speedMap: Record<string, number> = {
+        'happy': 1.5,        // Fast dancing
+        'energetic': 1.8,    // Fastest dancing
+        'calm': 0.6,         // Slow, gentle
+        'romantic': 0.8,     // Smooth and slow
+        'neutral': 1.0,      // Normal speed
+        'anxious': 1.3,      // Quick, jittery
+        'sad': 0.5,          // Very slow, comforting
+        'angry': 1.4,        // Fast, intense
+      };
+      return speedMap[moodCategory.toLowerCase()] || 1.0;
+    };
+
     // Expose dance and stop methods to parent component
     useImperativeHandle(ref, () => ({
       dance: () => {
-        console.log('Dance called!'); // Debug log
+        console.log('Dance called with mood:', mood);
         if (danceAnimation) {
           setIsDancing(true);
           setCurrentAnimation(danceAnimation);
           setTimeout(() => {
             if (lottieRef.current) {
-              lottieRef.current.setSpeed(0.1); // Slow down the dance animation
+              const speed = getAnimationSpeed(mood);
+              console.log('Setting dance speed:', speed);
+              lottieRef.current.setSpeed(speed);
               lottieRef.current.play();
             }
           }, 100);
         }
       },
       stop: () => {
-        console.log('Stop called!'); // Debug log
+        console.log('Stop called!');
         setIsDancing(false);
         if (idleAnimation) {
           setCurrentAnimation(idleAnimation);
@@ -76,7 +95,7 @@ const LottieRobot = forwardRef<LottieRobotHandle, LottieRobotProps>(
 
     return (
       <div 
-        className={`fixed pointer-events-none z-0 ${isDancing ? 'animate-energetic-dance' : 'animate-float-gentle'} ${className}`}
+        className={`lottie-robot-wrapper ${isDancing ? 'animate-energetic-dance' : 'animate-float-gentle'} ${className}`}
         style={defaultStyle}
       >
         <Lottie 
@@ -129,14 +148,7 @@ const LottieRobot = forwardRef<LottieRobotHandle, LottieRobotProps>(
 
           .animate-energetic-dance {
             animation: energetic-dance 1.5s ease-in-out infinite;
-            opacity: 0.9 !important;
-            filter: drop-shadow(0 0 30px rgba(168, 85, 247, 0.6));
-          }
-
-          .dancing {
-            opacity: 0.9 !important;
-            transform: scale(1.1);
-            filter: drop-shadow(0 0 30px rgba(168, 85, 247, 0.6));
+            opacity: 1 !important;
           }
         `}</style>
       </div>

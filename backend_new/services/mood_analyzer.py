@@ -32,12 +32,22 @@ class MoodAnalyzer:
             prompt = f"""Analyze this text for mood and recommend 5 songs.
             Text: "{text}"
 
+            Return JSON with EXACT mood_category from this list:
+            - "happy" (joyful, cheerful, delighted)
+            - "energetic" (excited, hyper, pumped)
+            - "calm" (peaceful, relaxed, chill)
+            - "sad" (melancholic, depressed, down)
+            - "angry" (frustrated, rage, mad)
+            - "anxious" (stressed, nervous, worried)
+            - "romantic" (loving, affectionate, passionate)
+            - "neutral" (balanced, normal, okay)
+
             Return JSON:
             {{
                 "mood_analysis": {{
                     "score": 0.5,
                     "magnitude": 0.7,
-                    "mood_category": "Positive",
+                    "mood_category": "happy",
                     "mood_description": "You're in a good mood!",
                     "intensity": "moderate",
                     "summary": "80-120 word engaging summary celebrating mood and connecting to music..."
@@ -47,15 +57,13 @@ class MoodAnalyzer:
                 ]
             }}
 
+            IMPORTANT: mood_category MUST be one of: happy, energetic, calm, sad, angry, anxious, romantic, neutral
+            
             Guidelines:
             - score: -1.0 to 1.0
-            - mood_category: "Very Negative", "Negative", "Neutral", "Positive", "Very Positive"
-            - Also try to uplift the mood if very negative
-            - If mood is negative, suggest soothing songs
+            - If mood is negative, suggest soothing songs to uplift
             - summary: Positive, fun 80-120 words connecting mood to music
-            - Also Don't repeat the songs again and again
-            - 5 popular songs matching mood
-            - also the 5 songs should have some correlation to each other"""
+            - 5 popular songs matching mood with variety"""
 
             response = self.groq.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
@@ -75,7 +83,16 @@ class MoodAnalyzer:
             result = json.loads(response_text)
             
             if "mood_analysis" in result and "song_recommendations" in result:
-                print(f"✅ Groq: {result['mood_analysis']['summary'][:50]}...")
+                # Validate mood_category
+                valid_moods = ["happy", "energetic", "calm", "sad", "angry", "anxious", "romantic", "neutral"]
+                mood_cat = result['mood_analysis']['mood_category'].lower()
+                
+                if mood_cat not in valid_moods:
+                    # Map to closest valid mood
+                    mood_cat = self._map_to_valid_mood(mood_cat, result['mood_analysis']['score'])
+                    result['mood_analysis']['mood_category'] = mood_cat
+                
+                print(f"✅ Groq: {result['mood_analysis']['mood_category']} - {result['mood_analysis']['summary'][:50]}...")
                 return result
             
             print("❌ Groq response invalid format")
@@ -85,6 +102,38 @@ class MoodAnalyzer:
             print(f"❌ Groq error: {e}")
             return None
     
+    def _map_to_valid_mood(self, mood: str, score: float) -> str:
+        """Map any mood to one of the 8 valid categories"""
+        mood_lower = mood.lower()
+        
+        # Mapping dictionary
+        mood_map = {
+            'joyful': 'happy', 'cheerful': 'happy', 'delighted': 'happy', 'positive': 'happy',
+            'excited': 'energetic', 'hyper': 'energetic', 'pumped': 'energetic',
+            'peaceful': 'calm', 'relaxed': 'calm', 'chill': 'calm', 'tranquil': 'calm',
+            'melancholic': 'sad', 'depressed': 'sad', 'down': 'sad', 'negative': 'sad',
+            'frustrated': 'angry', 'rage': 'angry', 'mad': 'angry',
+            'stressed': 'anxious', 'nervous': 'anxious', 'worried': 'anxious',
+            'loving': 'romantic', 'affectionate': 'romantic', 'passionate': 'romantic',
+        }
+        
+        # Try direct mapping
+        for key, value in mood_map.items():
+            if key in mood_lower or mood_lower in key:
+                return value
+        
+        # Fallback based on score
+        if score >= 0.5:
+            return 'happy'
+        elif score >= 0.1:
+            return 'calm'
+        elif score >= -0.1:
+            return 'neutral'
+        elif score >= -0.5:
+            return 'sad'
+        else:
+            return 'anxious'
+    
     def analyze_with_vader(self, text: str) -> dict:
         """
         Analyze mood using VADER (FALLBACK METHOD)
@@ -93,27 +142,35 @@ class MoodAnalyzer:
         sentiment = self.vader.polarity_scores(text)
         score = sentiment['compound']
         
-        # Map score to mood
+        # Map score to our 8 categories
         if score >= 0.5:
-            category = "Very Positive"
+            category = "happy"
             description = "You're feeling fantastic and energetic!"
             summary = "What an incredible energy you're radiating! Your positivity is infectious and it's the perfect time to celebrate with music that matches your soaring spirits. Whether you're dancing or conquering the world, these songs will amplify your amazing mood and keep those good vibes flowing!"
+        elif score >= 0.3:
+            category = "energetic"
+            description = "You're feeling pumped and ready to go!"
+            summary = "You're absolutely buzzing with energy! This electric mood calls for music that matches your vibrant spirit. These songs will keep you moving, grooving, and riding this incredible wave of excitement!"
         elif score >= 0.1:
-            category = "Positive"
-            description = "You're in a good, upbeat mood!"
-            summary = "You're glowing with positive energy! This upbeat mood calls for music that celebrates life's wonderful moments. These songs will be your perfect companions as you ride this wave of happiness. Let the melodies lift you even higher!"
-        elif score >= -0.1:
-            category = "Neutral"
-            description = "You're feeling calm and balanced."
+            category = "calm"
+            description = "You're feeling peaceful and balanced."
             summary = "There's something beautiful about finding balance in life. This peaceful state is perfect for discovering music that speaks to your soul. These songs will complement your tranquil mood and add a gentle spark to your day."
+        elif score >= -0.1:
+            category = "neutral"
+            description = "You're in a balanced, neutral mood."
+            summary = "You're in a perfectly balanced state, and that's wonderful! This is a great moment to explore diverse sounds and let music guide your emotions. These songs offer a beautiful journey through different vibes."
+        elif score >= -0.3:
+            category = "anxious"
+            description = "You're feeling a bit stressed or worried."
+            summary = "Life can be overwhelming sometimes, but music has this incredible power to soothe and center us. These carefully chosen songs will help ease your mind and bring a sense of calm to your day."
         elif score >= -0.5:
-            category = "Negative"
-            description = "You're feeling a bit down or melancholic."
-            summary = "Life has its challenging moments, and music has this incredible power to be your companion through them. These songs offer comfort, hope, and a reminder that you're not alone. Music can be the bridge that carries us back to brighter days."
+            category = "sad"
+            description = "You're feeling down or melancholic."
+            summary = "In moments of sadness, music becomes our companion. These songs honor your feelings while gently offering comfort and hope. Remember, it's okay to feel this way, and music can be the first step toward healing."
         else:
-            category = "Very Negative"
-            description = "You're going through a tough time."
-            summary = "In your darkest moments, music becomes a lifeline. These songs are chosen with care to honor your feelings while gently offering hope and healing. You're stronger than you know, and sometimes recovery begins with the right song."
+            category = "angry"
+            description = "You're feeling frustrated or angry."
+            summary = "Strong emotions need powerful music. These songs acknowledge your anger while channeling it into something transformative. Let the music help you process and release what you're feeling."
         
         return {
             "score": score,
