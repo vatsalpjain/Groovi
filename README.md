@@ -81,7 +81,8 @@
 - **[React 18](https://react.dev/)** - UI library
 - **[TypeScript](https://www.typescriptlang.org/)** - Type-safe JavaScript
 - **[Vite](https://vitejs.dev/)** - Build tool and dev server
-- **[CSS3](https://developer.mozilla.org/en-US/docs/Web/CSS)** - Modern styling with animations
+- **[Tailwind CSS v4](https://tailwindcss.com/)** - Utility-first CSS framework
+- **Dark/Light Mode** - System-aware theme toggle
 
 ### **APIs & Services**
 - **[Spotify Web API](https://developer.spotify.com/documentation/web-api)** - Music data and playback
@@ -192,7 +193,7 @@ cd groovi
 
 #### **2.1 Navigate to backend folder**
 ```bash
-cd backend_new
+cd backend
 ```
 
 #### **2.2 Create virtual environment**
@@ -244,7 +245,7 @@ pip list
 
 #### **3.1 Open new terminal and navigate to frontend**
 ```bash
-cd ../frontend_new
+cd ../frontend
 ```
 
 #### **3.2 Install Node.js dependencies**
@@ -263,11 +264,11 @@ npm install
 
 ### **Backend Configuration**
 
-#### **Create `.env` file in `backend_new/` folder:**
+#### **Create `.env` file in `backend/` folder:**
 
 ```bash
-# Navigate to backend_new folder
-cd backend_new
+# Navigate to backend folder
+cd backend
 
 # Create .env file
 # Windows: use notepad
@@ -333,10 +334,10 @@ GROQ_API_KEY=your_groq_api_key_here
 
 No configuration needed! The frontend is pre-configured to connect to `http://127.0.0.1:8000`.
 
-If you need to change the backend URL, edit:
-- `frontend_new/src/App.tsx` (line with `fetch('http://127.0.0.1:8000/recommend'`)
-- `frontend_new/src/components/AudioRecorder.tsx` (line with `fetch('http://127.0.0.1:8000/transcribe'`)
-- `frontend_new/src/components/AudioUploader.tsx` (line with `fetch('http://127.0.0.1:8000/transcribe'`)
+If you need to change the backend URL, edit `frontend/.env`:
+```env
+VITE_API_URL=http://127.0.0.1:8000
+```
 
 ---
 
@@ -346,7 +347,7 @@ If you need to change the backend URL, edit:
 
 #### **Terminal 1 - Start Backend:**
 ```bash
-cd backend_new
+cd backend
 
 # Activate virtual environment
 # Windows Command Prompt:
@@ -374,7 +375,7 @@ INFO:     Started reloader process
 
 #### **Terminal 2 - Start Frontend:**
 ```bash
-cd frontend_new
+cd frontend
 
 # Start dev server
 npm run dev
@@ -395,7 +396,7 @@ npm run dev
 ```batch
 @echo off
 echo Starting Groovi Backend and Frontend...
-start cmd /k "cd backend_new && venv\Scripts\activate && python start_server.py"
+start cmd /k "cd backend && venv\Scripts\activate && python start_server.py"
 timeout /t 3
 start cmd /k "cd frontend_new && npm run dev"
 ```
@@ -406,7 +407,7 @@ start cmd /k "cd frontend_new && npm run dev"
 ```bash
 #!/bin/bash
 echo "Starting Groovi Backend and Frontend..."
-cd backend_new && source venv/bin/activate && python start_server.py &
+cd backend && source venv/bin/activate && python start_server.py &
 sleep 3
 cd ../frontend_new && npm run dev
 ```
@@ -567,7 +568,7 @@ fetch('http://localhost:8000/recommend', {
 
 ```
 groovi/
-├── backend_new/                    # Backend application (Modular FastAPI)
+├── backend/                    # Backend application (Modular FastAPI)
 │   ├── config/
 │   │   └── settings.py            # Environment variables & config
 │   ├── models/
@@ -588,21 +589,28 @@ groovi/
 │   ├── .env                       # API keys (create this)
 │   └── .gitignore                 # Git ignore rules
 │
-├── frontend_new/                   # Frontend application (React + TypeScript + Vite)
+├── frontend/                        # Frontend application (React + TypeScript + Vite + Tailwind)
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── AudioRecorder.tsx  # Voice recording component
-│   │   │   └── AudioUploader.tsx  # File upload component
-│   │   ├── App.tsx                # Main React component
-│   │   ├── App.css                # Component styles
-│   │   ├── main.tsx               # React entry point
-│   │   └── index.css              # Global styles
-│   ├── public/                    # Static assets
-│   ├── index.html                 # HTML template
-│   ├── package.json               # Node.js dependencies
-│   ├── tsconfig.json              # TypeScript config
-│   ├── vite.config.ts             # Vite build config
-│   └── .gitignore                 # Git ignore rules
+│   │   │   ├── AudioRecorder.tsx    # Voice recording component
+│   │   │   ├── TTSButton.tsx        # Text-to-speech button
+│   │   │   ├── SpotifyEmbed.tsx     # Embedded Spotify player
+│   │   │   └── SongList.tsx         # Glassmorphism song list
+│   │   ├── hooks/
+│   │   │   └── useTheme.ts          # Dark/light mode hook
+│   │   ├── services/
+│   │   │   └── api.ts               # API client with error handling
+│   │   ├── App.tsx                  # Main React component
+│   │   ├── main.tsx                 # React entry point
+│   │   ├── index.css                # Tailwind import + CSS vars
+│   │   └── types.ts                 # TypeScript interfaces
+│   ├── public/                      # Static assets
+│   ├── index.html                   # HTML template
+│   ├── package.json                 # Node.js dependencies
+│   ├── tsconfig.json                # TypeScript config
+│   ├── vite.config.ts               # Vite + Tailwind config
+│   ├── .env                         # Frontend environment vars
+│   └── .gitignore                   # Git ignore rules
 │
 └── README.md                       # This file
 ```
@@ -632,7 +640,7 @@ groovi/
 **Cause:** `.env` file missing or incorrect.
 
 **Solution:**
-1. Verify `.env` file exists in `backend_new/` folder
+1. Verify `.env` file exists in `backend/` folder
 2. Check API keys are correct (no extra spaces)
 3. Restart backend server after updating `.env`
 4. Test connection: `python test_spotify.py`
@@ -658,7 +666,7 @@ groovi/
 
 **Solution:**
 ```bash
-cd backend_new
+cd backend
 # Activate venv first!
 pip install -r requirements.txt
 ```
@@ -683,7 +691,7 @@ lsof -ti:8000 | xargs kill -9
 ```
 
 **Option 2 - Change port:**
-Edit `backend_new/start_server.py`:
+Edit `backend/start_server.py`:
 ```python
 uvicorn.run(
     "main:app",
@@ -719,7 +727,7 @@ Then update frontend URLs to use port 8001.
 **Cause:** Frontend URL not in allowed origins.
 
 **Solution:**
-Edit `backend_new/config/settings.py`:
+Edit `backend/config/settings.py`:
 ```python
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
@@ -750,7 +758,7 @@ Restart backend after changes.
 
 ```bash
 # Test Spotify connection
-cd backend_new
+cd backend
 python test_spotify.py
 
 # Expected output:

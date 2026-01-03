@@ -21,8 +21,8 @@ Groovi - AI-Powered Mood-Based Music Recommender
 **📖 Full Documentation:** Read [README.md](./README.md) for complete architecture, setup, and API documentation.
 
 ## Architecture (Quick Reference)
-- **Backend** (`backend_new/`): FastAPI application with modular services
-- **Frontend** (`frontend_new/`): React 18 + TypeScript + Vite
+- **Backend** (`backend/`): FastAPI application with modular services
+- **Frontend** (`frontend/`): React 18 + TypeScript + Vite
 - **Mood Analysis** (`services/mood_analyzer.py`): Groq LLM (Llama 4 Maverick) + VADER fallback
 - **Music Recommendations** (`services/song_recommender.py`): Multi-strategy Spotify search
 - **Audio Transcription** (`services/audio_transcriber.py`): Deepgram API integration
@@ -86,11 +86,11 @@ from services.mood_analyzer import MoodAnalyzer
 
 ### Key Files
 - [README.md](./README.md): Full documentation, setup, and API reference
-- [main.py](./backend_new/main.py): FastAPI routes & application entry point
-- [settings.py](./backend_new/config/settings.py): Environment configuration
-- [mood_analyzer.py](./backend_new/services/mood_analyzer.py): AI mood analysis logic
-- [song_recommender.py](./backend_new/services/song_recommender.py): Spotify recommendation strategies
-- [App.tsx](./frontend_new/src/App.tsx): Main React component
+- [main.py](./backend/main.py): FastAPI routes & application entry point
+- [settings.py](./backend/config/settings.py): Environment configuration
+- [mood_analyzer.py](./backend/services/mood_analyzer.py): AI mood analysis logic
+- [song_recommender.py](./backend/services/song_recommender.py): Spotify recommendation strategies
+- [App.tsx](./frontend/src/App.tsx): Main React component
 
 ### External Services
 - **Groq**: LLM for mood analysis (Llama 4 Maverick, temp=0.7)
