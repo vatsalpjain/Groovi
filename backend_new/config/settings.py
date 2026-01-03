@@ -14,7 +14,10 @@ class Settings:
     
     # AI Services
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-    DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
+    
+    # Local Audio Models (no API keys needed)
+    WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")  # tiny, base, small, medium
+    PIPER_VOICE = os.getenv("PIPER_VOICE", "en_US-lessac-medium")
     
     # CORS - Frontend URLs allowed to access API
     ALLOWED_ORIGINS = [

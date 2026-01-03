@@ -15,6 +15,10 @@ class TextInput(BaseModel):
             "example": {"text": "I'm feeling really happy today!"}
         }
 
+class TTSRequest(BaseModel):
+    """Request model for text-to-speech synthesis"""
+    text: str = Field(..., min_length=1, max_length=500, description="Text to convert to speech")
+
 class TranscriptionResponse(BaseModel):
     """Audio transcription result"""
     transcript: str = Field(..., description="Transcribed text from audio")

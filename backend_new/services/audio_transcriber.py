@@ -1,24 +1,21 @@
-"""Audio transcription service using Deepgram"""
+"""Audio transcription service using local Faster-Whisper"""
 
-from deepgram import DeepgramClient, PrerecordedOptions, FileSource
-from config.settings import settings
+import tempfile
+import os
+from services.local_audio_service import get_local_audio_service
+
 
 class AudioTranscriber:
-    """Transcribes audio to text using Deepgram API"""
+    """Transcribes audio to text using local Faster-Whisper model"""
     
     def __init__(self):
-        """Initialize Deepgram client"""
-        self.client = None
-        if settings.DEEPGRAM_API_KEY:
-            try:
-                self.client = DeepgramClient(settings.DEEPGRAM_API_KEY)
-                print("✅ Deepgram client initialized")
-            except Exception as e:
-                print(f"❌ Deepgram init failed: {e}")
+        """Initialize local Whisper transcription service"""
+        self.local_service = get_local_audio_service()
+        print("✅ Local Whisper transcriber initialized")
     
     def transcribe_audio(self, audio_data: bytes) -> str:
         """
-        Transcribe audio bytes to text
+        Transcribe audio bytes to text using Faster-Whisper
         
         Args:
             audio_data: Raw audio file bytes (mp3, wav, webm, etc.)
@@ -26,39 +23,31 @@ class AudioTranscriber:
         Returns:
             Transcribed text string
         """
-        if not self.client:
-            raise ValueError("Deepgram API key not configured")
+        temp_path = None
         
         try:
-            # Prepare audio payload
-            payload: FileSource = {
-                "buffer": audio_data,
-            }
+            # Save bytes to temp file (Whisper needs file path)
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                f.write(audio_data)
+                temp_path = f.name
             
-            # Configure transcription options
-            options = PrerecordedOptions(
-                model="nova-2",  # Fast, accurate model
-                smart_format=True,  # Auto-formatting (punctuation, etc.)
-                language="en",  # English language
-                punctuate=True,  # Add punctuation
-                diarize=False,  # Don't separate speakers
-            )
-            
-            # Call Deepgram API
-            response = self.client.listen.rest.v("1").transcribe_file(payload, options)
-            
-            # Extract transcript from response
-            transcript = response.results.channels[0].alternatives[0].transcript
+            # Transcribe using local Whisper
+            transcript = self.local_service.transcribe(temp_path)
             
             if not transcript or transcript.strip() == "":
                 raise ValueError("No speech detected in audio")
             
-            print(f"✅ Transcription: {transcript[:100]}...")
             return transcript
             
         except Exception as e:
             print(f"❌ Transcription error: {e}")
             raise Exception(f"Failed to transcribe audio: {str(e)}")
+            
+        finally:
+            # Cleanup temp file
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+
 
 # Create global instance
 audio_transcriber = AudioTranscriber()

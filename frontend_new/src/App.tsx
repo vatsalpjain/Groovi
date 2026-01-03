@@ -6,6 +6,7 @@ import ScrollVelocity from "./components/ScrollVelocity";
 import GlareHover from "./components/GlareHover";
 import LottieRobot from "./components/LottieRobot";
 import DynamicWaves from "./components/DynamicWaves";
+import TTSPlayer from "./components/TTSPlayer";
 import { useTheme } from "./hooks/useTheme";
 import type { LottieRobotHandle } from "./components/LottieRobot";
 
@@ -50,6 +51,8 @@ function App() {
   // State to track which song is playing
   const [playingSongUri, setPlayingSongUri] = useState<string | null>(null);
   const [embeddedTrackUri, setEmbeddedTrackUri] = useState<string | null>(null);
+  // TTS state - enabled by default
+  const [ttsEnabled, setTtsEnabled] = useState(true);
 
   // FOUR separate refs
   const topRobotLeft = useRef<LottieRobotHandle>(null);
@@ -140,13 +143,13 @@ function App() {
   // Function to handle song click - embed player and start dancing
   const handleSongClick = (songUri: string, externalUrl: string) => {
     setPlayingSongUri(songUri);
-    
+
     // Extract track ID from Spotify URI (spotify:track:XXXXX)
     const trackId = songUri.split(":")[2];
     setEmbeddedTrackUri(trackId);
 
     // DON'T start dancing yet - wait for music to actually play
-    
+
     // Scroll to player
     setTimeout(() => {
       const player = document.querySelector(".spotify-player");
@@ -159,7 +162,7 @@ function App() {
   // Replace handleMusicStart function:
   const handleMusicStart = () => {
     setIsDancing(true);
-    
+
     // Dance all 4 robots (whichever are visible)
     if (topRobotLeft.current) topRobotLeft.current.dance();
     if (topRobotRight.current) topRobotRight.current.dance();
@@ -205,7 +208,7 @@ function App() {
       const danceTimer = setTimeout(() => {
         handleMusicStart();
       }, 1000);
-      
+
       return () => clearTimeout(danceTimer);
     } else {
       setIsDancing(false);
@@ -257,7 +260,7 @@ function App() {
     <div className="app">
       {/* Waves background - fixed positioning, behind everything */}
       <DynamicWaves />
-      
+
       {/* Main content */}
       <header className="app-header">
         {/* Only show robots at top when no results */}
@@ -341,20 +344,20 @@ function App() {
               {isLoading
                 ? "Finding your vibe..."
                 : isUploading
-                ? "Processing audio..."
-                : "Get My Vibe"}
+                  ? "Processing audio..."
+                  : "Get My Vibe"}
             </button>
           </GlareHover>
           <div className="char-counter">{moodText.length}/500 characters</div>
         </div>
       </header>
-      
+
       <ScrollVelocity
         texts={["🎵 Groovi", "✨ Your Vibe"]}
         velocity={50}
         className="text-white/20"
       />
-      
+
       <main className="results-area">
         {/* Success message */}
         {showSuccess && (
@@ -477,6 +480,23 @@ function App() {
               </div>
 
               <p className="mood-summary-text">{moodAnalysis.summary}</p>
+
+              {/* TTS Player - Read summary aloud */}
+              <div className="tts-section">
+                <TTSPlayer
+                  text={moodAnalysis.summary}
+                  autoPlay={ttsEnabled}
+                />
+                <label className="tts-toggle">
+                  <input
+                    type="checkbox"
+                    checked={ttsEnabled}
+                    onChange={(e) => setTtsEnabled(e.target.checked)}
+                  />
+                  <span>Auto-read</span>
+                </label>
+              </div>
+
               <p className="mood-description">{moodAnalysis.description}</p>
               <div className="mood-score">
                 Sentiment Score:{" "}
@@ -503,9 +523,8 @@ function App() {
           {recommendations.map((song, index) => (
             <div
               key={song.uri}
-              className={`song-item ${
-                playingSongUri === song.uri ? "playing" : ""
-              }`}
+              className={`song-item ${playingSongUri === song.uri ? "playing" : ""
+                }`}
               onClick={() => handleSongClick(song.uri, song.external_url)}
               style={{ animationDelay: `${index * 0.15}s` }}
               title={`Preview ${song.name} by ${song.artist}`}

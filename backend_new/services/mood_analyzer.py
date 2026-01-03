@@ -69,7 +69,7 @@ class MoodAnalyzer:
                 messages=[{"role": "user", "content": prompt}],
                 model="groq/compound",
                 max_tokens=1024,
-                temperature=0.5
+                temperature=0.8
             )
 
             response_text = response.choices[0].message.content.strip()

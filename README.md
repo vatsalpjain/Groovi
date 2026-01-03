@@ -49,7 +49,7 @@
 - ✍️ **Text Input** - Type your mood in natural language
 - 🎙️ **Voice Recording** - Record your mood directly in the browser
 - 📁 **Audio Upload** - Upload audio files (MP3, WAV, WebM, OGG, M4A)
-- 🗣️ **Speech-to-Text** - Powered by Deepgram API for accurate transcription
+- 🗣️ **Speech-to-Text** - Local Faster-Whisper for accurate transcription (no API key needed)
 
 ### 🎵 **Smart Music Recommendations**
 - **5 Curated Songs** per mood analysis
@@ -71,7 +71,8 @@
 - **[FastAPI](https://fastapi.tiangolo.com/)** - Modern Python web framework
 - **[Spotipy](https://spotipy.readthedocs.io/)** - Spotify API wrapper
 - **[Groq](https://groq.com/)** - AI/LLM for mood analysis
-- **[Deepgram](https://deepgram.com/)** - Speech-to-text API
+- **[Faster-Whisper](https://github.com/guillaumekln/faster-whisper)** - Local speech-to-text
+- **[Piper TTS](https://github.com/rhasspy/piper)** - Local text-to-speech
 - **[VADER Sentiment](https://github.com/cjhutto/vaderSentiment)** - Fallback sentiment analyzer
 - **[Pydantic](https://pydantic.dev/)** - Data validation
 - **[Uvicorn](https://www.uvicorn.org/)** - ASGI server
@@ -85,7 +86,6 @@
 ### **APIs & Services**
 - **[Spotify Web API](https://developer.spotify.com/documentation/web-api)** - Music data and playback
 - **[Groq API](https://console.groq.com/)** - AI-powered mood analysis
-- **[Deepgram API](https://developers.deepgram.com/)** - Audio transcription
 
 ---
 
@@ -120,7 +120,7 @@
 │  │                Services Layer                         │  │
 │  │  ┌─────────────────┐  ┌──────────────────────────┐  │  │
 │  │  │ AudioTranscriber│  │    MoodAnalyzer          │  │  │
-│  │  │  (Deepgram)     │  │  (Groq AI + VADER)       │  │  │
+│  │  │ (Faster-Whisper)│  │  (Groq AI + VADER)       │  │  │
 │  │  └─────────────────┘  └──────────────────────────┘  │  │
 │  │  ┌─────────────────┐  ┌──────────────────────────┐  │  │
 │  │  │SongRecommender  │  │   SpotifyClient          │  │  │
@@ -141,9 +141,9 @@
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    External APIs                             │
-│  ┌──────────────┐  ┌────────────┐  ┌──────────────────┐   │
-│  │ Spotify API  │  │  Groq API  │  │  Deepgram API    │   │
-│  └──────────────┘  └────────────┘  └──────────────────┘   │
+│  ┌──────────────┐  ┌────────────┐                           │
+│  │ Spotify API  │  │  Groq API  │                           │
+│  └──────────────┘  └────────────┘                           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -173,10 +173,6 @@ You'll need to sign up for free API keys from:
 2. **[Groq Console](https://console.groq.com/)**
    - Sign up for free API key
    - Free tier: Generous rate limits
-
-3. **[Deepgram](https://console.deepgram.com/signup)** *(Optional - for audio transcription)*
-   - Sign up for free API key
-   - Free tier: $200 credit
 
 ---
 
@@ -232,11 +228,11 @@ pip install -r requirements.txt
 - uvicorn[standard]
 - spotipy
 - groq
-- deepgram-sdk
+- faster-whisper
+- piper-tts
 - vaderSentiment
 - pydantic
 - python-dotenv
-- python-multipart
 - requests
 
 #### **2.4 Verify installation**
@@ -293,9 +289,9 @@ SPOTIPY_CLIENT_SECRET=your_spotify_client_secret_here
 # Get from: https://console.groq.com/keys
 GROQ_API_KEY=your_groq_api_key_here
 
-# Deepgram API Key (OPTIONAL - for audio transcription)
-# Get from: https://console.deepgram.com/
-DEEPGRAM_API_KEY=your_deepgram_api_key_here
+# Optional: Local audio model settings
+# WHISPER_MODEL_SIZE=base  # Options: tiny, base, small, medium
+# PIPER_VOICE=en_US-lessac-medium
 ```
 
 #### **How to get API keys:**
@@ -331,17 +327,6 @@ DEEPGRAM_API_KEY=your_deepgram_api_key_here
 
 </details>
 
-<details>
-<summary><b>🎙️ Deepgram API Setup (Optional - Click to expand)</b></summary>
-
-1. Go to [Deepgram Console](https://console.deepgram.com/signup)
-2. Sign up for free account
-3. Navigate to **API Keys** section
-4. Copy your default API key
-5. Paste it into your `.env` file
-
-**Note:** If you don't add Deepgram key, voice/audio features won't work, but text input will still work fine.
-
 </details>
 
 ### **Frontend Configuration**
@@ -372,7 +357,7 @@ venv\Scripts\Activate.ps1
 source venv/bin/activate
 
 # Start server
-python start_server.py
+python main.py
 ```
 
 **Expected output:**
@@ -382,7 +367,7 @@ python start_server.py
 📚 API Docs: http://localhost:8000/docs
 ✅ Spotify client initialized
 ✅ Groq AI initialized
-✅ Deepgram client initialized
+✅ Local Whisper transcriber initialized
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 INFO:     Started reloader process
 ```
@@ -588,17 +573,17 @@ groovi/
 │   ├── models/
 │   │   └── schemas.py             # Pydantic data models
 │   ├── services/
-│   │   ├── audio_transcriber.py   # Deepgram integration
+│   │   ├── audio_transcriber.py   # Local Faster-Whisper STT
+│   │   ├── local_audio_service.py # STT + TTS service
 │   │   ├── mood_analyzer.py       # Groq AI + VADER sentiment
 │   │   ├── song_recommender.py    # Multi-strategy recommendations
 │   │   └── spotify_client.py      # Spotify API wrapper
 │   ├── data/
 │   │   └── mood_libraries.py      # Curated fallback songs by mood
-│   ├── utils/
-│   │   └── helpers.py             # Utility functions
-│   ├── main.py                    # FastAPI application & routes
-│   ├── start_server.py            # Server startup script
-│   ├── test_spotify.py            # Spotify connection test
+│   ├── tests/
+│   │   ├── test_spotify.py        # Spotify connection test
+│   │   └── test_local_audio.py    # STT/TTS tests
+│   ├── main.py                    # FastAPI app & server entry
 │   ├── requirements.txt           # Python dependencies
 │   ├── .env                       # API keys (create this)
 │   └── .gitignore                 # Git ignore rules
@@ -634,7 +619,7 @@ groovi/
 **Cause:** Backend server is not running.
 
 **Solution:**
-1. Ensure backend is running: `python start_server.py`
+1. Ensure backend is running: `python main.py`
 2. Check backend is accessible: Open [http://localhost:8000](http://localhost:8000)
 3. Verify no firewall blocking port 8000
 4. Check backend terminal for errors

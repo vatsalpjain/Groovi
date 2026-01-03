@@ -16,9 +16,8 @@ vaderSentiment
 
 # AI/LLM Services
 groq
-
-# Audio Transcription
-deepgram-sdk
-
+faster-whisper
+piper-tts
+soundfile
 # HTTP Requests (for future use)
 requests
