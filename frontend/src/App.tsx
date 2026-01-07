@@ -3,9 +3,14 @@ import { getRecommendations, ApiError } from './services/api'
 import { useTheme } from './hooks/useTheme'
 import { AudioRecorder } from './components/AudioRecorder'
 import { TTSButton } from './components/TTSButton'
-import { SpotifyEmbed } from './components/SpotifyEmbed'
 import { SongList } from './components/SongList'
+import { SpotifyAuth } from './components/SpotifyAuth'
+import { SpotifyPlayer } from './components/SpotifyPlayer'
+import { SpotifyEmbed } from './components/SpotifyEmbed'
 import type { MoodAnalysis, Song } from './types'
+
+// Backend API URL
+const API_URL = 'http://localhost:8000'
 
 function App() {
   // Theme
@@ -19,6 +24,20 @@ function App() {
   const [songs, setSongs] = useState<Song[]>([])
   const [currentTrackId, setCurrentTrackId] = useState<string | null>(null)
 
+  // Spotify state
+  const [isSpotifyConnected, setIsSpotifyConnected] = useState(false)
+  const [isCreatingPlaylist, setIsCreatingPlaylist] = useState(false)
+  const [playlistUrl, setPlaylistUrl] = useState<string | null>(null)
+  const [sdkFailed, setSdkFailed] = useState(false)  // True if Web Playback SDK failed
+
+  // Get track URIs for player
+  const trackUris = songs.map(song => song.uri)
+
+  // Find selected track index (for clicking on songs in playlist)
+  const selectedTrackIndex = currentTrackId
+    ? songs.findIndex(song => song.uri.includes(currentTrackId))
+    : 0
+
   // Handle form submission
   const handleSubmit = async () => {
     if (!moodText.trim() || isLoading) return
@@ -27,6 +46,7 @@ function App() {
     setError(null)
     setMoodAnalysis(null)
     setSongs([])
+    setPlaylistUrl(null)
 
     try {
       const response = await getRecommendations(moodText)
@@ -57,17 +77,55 @@ function App() {
     }
   }
 
+  // Create playlist from current songs
+  const handleCreatePlaylist = async () => {
+    if (songs.length === 0 || !isSpotifyConnected) return
+
+    setIsCreatingPlaylist(true)
+    try {
+      const playlistName = `Groovi - ${moodAnalysis?.category || 'Mood'} Vibes`
+      const response = await fetch(`${API_URL}/playlist/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: playlistName,
+          track_uris: trackUris,
+          description: `Created by Groovi based on your ${moodAnalysis?.category || ''} mood 🎵`,
+          public: false
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to create playlist')
+      }
+
+      const data = await response.json()
+      setPlaylistUrl(data.playlist?.external_url)
+    } catch (err) {
+      console.error('Playlist creation failed:', err)
+      setError('Failed to create playlist. Make sure you are connected to Spotify.')
+    } finally {
+      setIsCreatingPlaylist(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white transition-colors">
-      {/* Theme Toggle */}
-      <button
-        onClick={toggleTheme}
-        className="fixed top-4 right-4 p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 
-                   hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
-        aria-label="Toggle theme"
-      >
-        {theme === 'dark' ? '☀️' : '🌙'}
-      </button>
+      {/* Header controls */}
+      <div className="fixed top-4 right-4 flex items-center gap-3 z-50">
+        {/* Spotify Auth */}
+        <SpotifyAuth onAuthChange={setIsSpotifyConnected} />
+
+        {/* Theme Toggle */}
+        <button
+          onClick={toggleTheme}
+          className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 
+                     hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+          aria-label="Toggle theme"
+        >
+          {theme === 'dark' ? '☀️' : '🌙'}
+        </button>
+      </div>
 
       {/* Header */}
       <header className="py-12 text-center">
@@ -77,10 +135,15 @@ function App() {
         <p className="mt-4 text-lg text-zinc-500 dark:text-zinc-400">
           Describe your mood, get the perfect soundtrack
         </p>
+        {isSpotifyConnected && (
+          <p className="mt-2 text-sm text-green-500">
+            🎧 Full playback enabled
+          </p>
+        )}
       </header>
 
-      {/* Main content */}
-      <main className="max-w-2xl mx-auto px-4 pb-20">
+      {/* Main content - add padding for player */}
+      <main className={`max-w-2xl mx-auto px-4 ${songs.length > 0 && isSpotifyConnected ? 'pb-32' : 'pb-20'}`}>
         {/* Mood Input Section */}
         <div className="space-y-4">
           {/* Audio Recording Button - Above textarea */}
@@ -163,10 +226,80 @@ function App() {
           currentTrackId={currentTrackId}
           onSongSelect={setCurrentTrackId}
         />
+
+        {/* Save as Playlist Button */}
+        {songs.length > 0 && isSpotifyConnected && (
+          <div className="mt-6 flex flex-col items-center gap-3">
+            {!playlistUrl ? (
+              <button
+                onClick={handleCreatePlaylist}
+                disabled={isCreatingPlaylist}
+                className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold
+                         bg-[#1DB954] hover:bg-[#1ed760] text-white
+                         transition-all duration-200 hover:scale-105
+                         disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isCreatingPlaylist ? (
+                  <>
+                    <span className="animate-spin">⏳</span>
+                    Creating Playlist...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+                    </svg>
+                    Save as Spotify Playlist
+                  </>
+                )}
+              </button>
+            ) : (
+              <a
+                href={playlistUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold
+                         bg-green-500/20 border border-green-500/50 text-green-500
+                         hover:bg-green-500/30 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                </svg>
+                Open Playlist in Spotify
+              </a>
+            )}
+          </div>
+        )}
       </main>
 
-      {/* Spotify Embed Player - Sticky bottom-right */}
-      {currentTrackId && (
+      {/* Spotify Player - Full playback controls (when authenticated and SDK working) */}
+      {isSpotifyConnected && songs.length > 0 && !sdkFailed && (
+        <SpotifyPlayer
+          trackUris={trackUris}
+          isAuthenticated={isSpotifyConnected}
+          startTrackIndex={selectedTrackIndex >= 0 ? selectedTrackIndex : 0}
+          onTrackChange={(index) => {
+            // Sync currentTrackId when player changes tracks
+            if (songs[index]) {
+              const trackId = songs[index].uri.split(':')[2]
+              setCurrentTrackId(trackId)
+            }
+          }}
+          onPlaybackFailed={() => {
+            // SDK failed - switch to embed with first track
+            console.log('🔀 Switching to embed player')
+            setSdkFailed(true)
+            if (songs.length > 0) {
+              // Extract track ID from URI (format: spotify:track:TRACKID)
+              const trackId = songs[0].uri.split(':')[2]
+              setCurrentTrackId(trackId)
+            }
+          }}
+        />
+      )}
+
+      {/* Spotify Embed - Fallback player (when NOT authenticated OR SDK failed) */}
+      {(!isSpotifyConnected || sdkFailed) && currentTrackId && (
         <SpotifyEmbed
           trackId={currentTrackId}
           onClose={() => setCurrentTrackId(null)}
@@ -174,7 +307,7 @@ function App() {
       )}
 
       {/* Footer - hide when player is showing */}
-      {!currentTrackId && (
+      {!(songs.length > 0) && (
         <footer className="fixed bottom-4 left-0 right-0 text-center text-sm text-zinc-400">
           <p>Built with ❤️ for music lovers</p>
         </footer>

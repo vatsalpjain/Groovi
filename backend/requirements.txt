@@ -19,5 +19,9 @@ groq
 faster-whisper
 piper-tts
 soundfile
-# HTTP Requests (for future use)
+
+# HTTP Requests
 requests
+httpx  # Async HTTP client for MCP calls
+
+python-multipart

@@ -44,4 +44,4 @@ class Song(BaseModel):
 class RecommendationResponse(BaseModel):
     """Complete API response"""
     mood_analysis: MoodAnalysis
-    songs: List[Song] = Field(..., min_items=5, max_items=5)
+    songs: List[Song] = Field(..., min_length=1, max_length=10)
