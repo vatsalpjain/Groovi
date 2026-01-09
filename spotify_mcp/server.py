@@ -201,6 +201,65 @@ async def list_moods():
     return {"moods": MOOD_AUDIO_FEATURES}
 
 
+# ---------- Agent Tools Endpoints ----------
+# These endpoints are used by the AI agent to explore Spotify's catalog
+
+@http_app.get("/tools/genres")
+async def get_genres():
+    """Get all available Spotify genre seeds (~126 genres)"""
+    genres = spotify_client.get_available_genre_seeds()
+    return {"genres": genres, "count": len(genres)}
+
+@http_app.get("/tools/search_artist")
+async def search_artist(name: str):
+    """Find an artist by name"""
+    artist = spotify_client.search_artist(name)
+    if not artist:
+        raise HTTPException(status_code=404, detail=f"Artist '{name}' not found")
+    return {"artist": artist}
+
+@http_app.get("/tools/artist_top_tracks")
+async def get_artist_top_tracks(artist_id: str):
+    """Get top tracks of an artist"""
+    tracks = spotify_client.get_artist_top_tracks(artist_id)
+    return {"tracks": tracks, "count": len(tracks)}
+
+@http_app.get("/tools/related_artists")
+async def get_related_artists(artist_id: str):
+    """Get artists similar to the given artist"""
+    artists = spotify_client.get_related_artists(artist_id)
+    return {"artists": artists, "count": len(artists)}
+
+@http_app.get("/tools/search_playlists")
+async def search_playlists(query: str, limit: int = 5):
+    """Search for playlists by query"""
+    playlists = spotify_client.search_playlists(query, limit)
+    return {"playlists": playlists, "count": len(playlists)}
+
+@http_app.get("/tools/playlist_tracks")
+async def get_playlist_tracks(playlist_id: str, limit: int = 20):
+    """Get tracks from a playlist"""
+    tracks = spotify_client.get_playlist_tracks(playlist_id, limit)
+    return {"tracks": tracks, "count": len(tracks)}
+
+@http_app.get("/tools/search_by_genre")
+async def search_by_genre(genre: str, limit: int = 10):
+    """Search tracks by genre"""
+    tracks = spotify_client.search_by_genre(genre, limit)
+    return {"tracks": tracks, "count": len(tracks)}
+
+@http_app.get("/tools/new_releases")
+async def get_new_releases(limit: int = 10):
+    """Get recently released albums"""
+    albums = spotify_client.get_new_releases(limit=limit)
+    return {"albums": albums, "count": len(albums)}
+
+@http_app.get("/tools/search_tracks")
+async def search_tracks(query: str, limit: int = 10):
+    """Search for tracks by query"""
+    tracks = spotify_client.search_tracks(query, limit)
+    return {"tracks": tracks, "count": len(tracks)}
+
 # ---------- Playback Control Endpoints ----------
 
 @http_app.post("/player/play")
@@ -307,13 +366,7 @@ async def playlist_add_tracks(request: PlaylistAddRequest):
     return {"status": "added", "tracks": len(request.track_uris)}
 
 
-# ---------- Search & Track Info ----------
-
-@http_app.get("/search")
-async def search_tracks(q: str = Query(...), limit: int = 10):
-    """Search for tracks"""
-    tracks = spotify_client.search_tracks(q, limit=limit)
-    return {"tracks": tracks, "query": q, "count": len(tracks)}
+# ---------- Track Info ----------
 
 @http_app.get("/track/{track_id}")
 async def get_track(track_id: str):
@@ -323,9 +376,16 @@ async def get_track(track_id: str):
         raise HTTPException(status_code=404, detail="Track not found")
     return {"track": track}
 
+# Legacy endpoints (deprecated, use /tools/* instead)
+@http_app.get("/search")
+async def search_tracks_legacy(q: str = Query(...), limit: int = 10):
+    """Search for tracks (DEPRECATED - use /tools/search_tracks)"""
+    tracks = spotify_client.search_tracks(q, limit=limit)
+    return {"tracks": tracks, "query": q, "count": len(tracks)}
+
 @http_app.get("/genres")
-async def get_genres():
-    """Get available genre seeds"""
+async def get_genres_legacy():
+    """Get available genre seeds (DEPRECATED - use /tools/genres)"""
     genres = spotify_client.get_available_genre_seeds()
     return {"genres": genres, "count": len(genres)}
 

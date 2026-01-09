@@ -7,7 +7,9 @@ import { SongList } from './components/SongList'
 import { SpotifyAuth } from './components/SpotifyAuth'
 import { SpotifyPlayer } from './components/SpotifyPlayer'
 import { SpotifyEmbed } from './components/SpotifyEmbed'
-import type { MoodAnalysis, Song } from './types'
+import { ThoughtProcess } from './components/ThoughtProcess'
+import { AgentLoader } from './components/AgentLoader'
+import type { MoodAnalysis, Song, ThoughtStep } from './types'
 
 // Backend API URL
 const API_URL = 'http://localhost:8000'
@@ -23,6 +25,8 @@ function App() {
   const [moodAnalysis, setMoodAnalysis] = useState<MoodAnalysis | null>(null)
   const [songs, setSongs] = useState<Song[]>([])
   const [currentTrackId, setCurrentTrackId] = useState<string | null>(null)
+  const [thoughtProcess, setThoughtProcess] = useState<ThoughtStep[]>([])
+  const [agentIterations, setAgentIterations] = useState(0)
 
   // Spotify state
   const [isSpotifyConnected, setIsSpotifyConnected] = useState(false)
@@ -47,11 +51,20 @@ function App() {
     setMoodAnalysis(null)
     setSongs([])
     setPlaylistUrl(null)
+    setThoughtProcess([])
+    setAgentIterations(0)
 
     try {
       const response = await getRecommendations(moodText)
       setMoodAnalysis(response.mood_analysis)
       setSongs(response.songs)
+      // Store agent thought process for display
+      if (response.thought_process) {
+        setThoughtProcess(response.thought_process)
+      }
+      if (response.agent_iterations) {
+        setAgentIterations(response.agent_iterations)
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.detail || err.message)
@@ -188,6 +201,9 @@ function App() {
           </div>
         )}
 
+        {/* Agent Loading State - Show WHILE loading */}
+        {isLoading && <AgentLoader />}
+
         {/* Mood Analysis Card */}
         {moodAnalysis && (
           <div className="mt-8 p-6 rounded-xl bg-zinc-100 dark:bg-zinc-900 
@@ -217,6 +233,12 @@ function App() {
             <p className="text-zinc-500 dark:text-zinc-400 text-sm">
               {moodAnalysis.description}
             </p>
+
+            {/* Thought Process - Show agent's reasoning */}
+            <ThoughtProcess
+              steps={thoughtProcess}
+              iterations={agentIterations}
+            />
           </div>
         )}
 

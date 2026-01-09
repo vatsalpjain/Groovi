@@ -100,26 +100,89 @@ async def transcribe_audio(audio: UploadFile = File(...)):
 
 # ==================== Mood Analysis & Recommendations ====================
 
-@app.post("/recommend", response_model=RecommendationResponse)
+@app.post("/recommend")
 async def recommend_songs(text_input: TextInput):
     """
-    Analyze mood and recommend songs via Spotify MCP
+    AI Agent-based music recommendation
     
     Flow:
-    1. Analyze mood with Groq AI (or VADER fallback)
-    2. Call MCP /recommendations with mood category
-    3. Return mood analysis + 5 songs
+    1. Use AI Agent with Groq function calling
+    2. Agent explores Spotify via MCP tools
+    3. Agent curates 5 best tracks with reasoning
+    4. Returns tracks + thought process for UI display
     """
     if not text_input.text:
         raise HTTPException(status_code=400, detail="No text provided")
     
-    # Step 1: Analyze mood with Groq
-    mood_analysis, _ = mood_analyzer.analyze(text_input.text)
+    user_query = text_input.text.strip()
+    print(f"🎵 User query: {user_query}")
+    
+    # Import agent here to avoid circular imports
+    from services.music_agent import MusicRecommendationAgent
+    from groq import Groq
+    
+    try:
+        # Initialize Groq client and agent
+        groq_client = Groq(api_key=settings.GROQ_API_KEY)
+        agent = MusicRecommendationAgent(groq_client)
+        
+        # Run the agent
+        result = await agent.run(user_query)
+        await agent.close()
+        
+        # Check if agent succeeded
+        if "error" in result:
+            print(f"❌ Agent error: {result.get('error')}")
+            # Fall back to simple mood-based search
+            return await fallback_recommend(user_query)
+        
+        # Format response
+        tracks = result.get("tracks", [])
+        if not tracks:
+            return await fallback_recommend(user_query)
+        
+        # Format songs for frontend
+        songs = []
+        for track in tracks[:5]:
+            songs.append({
+                "name": track.get("name", "Unknown"),
+                "artist": track.get("artist", "Unknown"),
+                "uri": track.get("uri", ""),
+                "album_art": track.get("album_art", ""),
+                "external_url": track.get("external_url", ""),
+                "reason": track.get("reason", "")  # Why this track was chosen
+            })
+        
+        return {
+            "mood_analysis": {
+                "category": result.get("mood", "neutral"),
+                "description": result.get("summary", ""),
+                "summary": result.get("summary", ""),
+                "score": 0.5,
+                "intensity": "moderate"
+            },
+            "songs": songs,
+            "thought_process": result.get("thought_process", []),  # Agent's reasoning
+            "agent_iterations": result.get("iterations", 0)
+        }
+        
+    except Exception as e:
+        print(f"❌ Agent failed: {e}")
+        # Fall back to simple approach
+        return await fallback_recommend(user_query)
+
+
+async def fallback_recommend(user_query: str):
+    """
+    Fallback to simple mood-based recommendation when agent fails
+    """
+    # Analyze mood with Groq
+    mood_analysis, _ = mood_analyzer.analyze(user_query)
     mood_category = mood_analysis['mood_category']
     
-    print(f"🎯 Detected mood: {mood_category}")
+    print(f"🎯 Fallback: Using mood '{mood_category}'")
     
-    # Step 2: Get recommendations from MCP
+    # Get recommendations from MCP
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -128,22 +191,16 @@ async def recommend_songs(text_input: TextInput):
             )
             
             if response.status_code != 200:
-                print(f"❌ MCP error: {response.status_code} - {response.text}")
-                raise HTTPException(status_code=502, detail="Failed to get recommendations from MCP")
+                raise HTTPException(status_code=502, detail="Failed to get recommendations")
             
             mcp_data = response.json()
             songs = mcp_data.get("tracks", [])
             
     except httpx.ConnectError:
-        raise HTTPException(status_code=503, detail="MCP server not available. Start it with: cd spotify_mcp && uv run python server.py")
+        raise HTTPException(status_code=503, detail="MCP server not available")
     except Exception as e:
-        print(f"❌ MCP request failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get recommendations: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed: {str(e)}")
     
-    if not songs:
-        raise HTTPException(status_code=404, detail="Could not find song recommendations")
-    
-    # Step 3: Return formatted response
     return {
         "mood_analysis": {
             "category": mood_analysis['mood_category'],
@@ -152,7 +209,9 @@ async def recommend_songs(text_input: TextInput):
             "score": mood_analysis['score'],
             "intensity": mood_analysis['intensity']
         },
-        "songs": songs[:5]
+        "songs": songs[:5],
+        "thought_process": [],  # No agent thoughts in fallback
+        "agent_iterations": 0
     }
 
 

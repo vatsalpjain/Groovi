@@ -1,2 +1,68 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Environment variables - IMPORTANT: Never commit secrets
 .env
+.env.local
+.env.*.local
+*.env
+
+# Package manager lock files (regenerated on install)
 uv.lock
+
+# Python distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+*.whl
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.bak
+
+# Logs
+*.log
+logs/
+
+# Security - API keys, secrets, certificates
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials/
+
+# Spotify token cache (may contain access tokens)
+.spotify_cache
+.cache-*
+token.json
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3

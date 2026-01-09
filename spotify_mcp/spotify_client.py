@@ -225,6 +225,109 @@ class SpotifyMCPClient:
             logger.error(f"Get track error: {e}")
             return None
 
+    # ==================== Agent Tools ====================
+    
+    def search_artist(self, name: str) -> Optional[Dict[str, Any]]:
+        """Find an artist by name"""
+        try:
+            results = self.sp.search(q=name, type='artist', limit=1)
+            artists = results['artists']['items']
+            if artists:
+                artist = artists[0]
+                return {
+                    'id': artist['id'],
+                    'name': artist['name'],
+                    'genres': artist.get('genres', []),
+                    'popularity': artist.get('popularity', 0),
+                    'followers': artist['followers']['total'] if artist.get('followers') else 0,
+                    'image': artist['images'][0]['url'] if artist.get('images') else None
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Search artist error: {e}")
+            return None
+
+    def get_artist_top_tracks(self, artist_id: str, country: str = 'US') -> List[Dict[str, Any]]:
+        """Get top tracks of an artist"""
+        try:
+            results = self.sp.artist_top_tracks(artist_id, country=country)
+            return [self._format_track(track) for track in results['tracks']]
+        except Exception as e:
+            logger.error(f"Artist top tracks error: {e}")
+            return []
+
+    def get_related_artists(self, artist_id: str) -> List[Dict[str, Any]]:
+        """Find artists similar to the given artist"""
+        try:
+            results = self.sp.artist_related_artists(artist_id)
+            return [{
+                'id': artist['id'],
+                'name': artist['name'],
+                'genres': artist.get('genres', []),
+                'popularity': artist.get('popularity', 0)
+            } for artist in results['artists'][:10]]  # Limit to top 10
+        except Exception as e:
+            logger.error(f"Related artists error: {e}")
+            return []
+
+    def search_playlists(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Search for playlists by query"""
+        try:
+            results = self.sp.search(q=query, type='playlist', limit=limit)
+            return [{
+                'id': playlist['id'],
+                'name': playlist['name'],
+                'description': playlist.get('description', ''),
+                'owner': playlist['owner']['display_name'],
+                'tracks_total': playlist['tracks']['total'],
+                'image': playlist['images'][0]['url'] if playlist.get('images') else None
+            } for playlist in results['playlists']['items'] if playlist]
+        except Exception as e:
+            logger.error(f"Search playlists error: {e}")
+            return []
+
+    def get_playlist_tracks(self, playlist_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get tracks from a playlist"""
+        try:
+            results = self.sp.playlist_tracks(playlist_id, limit=limit)
+            tracks = []
+            for item in results['items']:
+                if item['track']:  # Some playlist items can be null
+                    tracks.append(self._format_track(item['track']))
+            return tracks
+        except Exception as e:
+            logger.error(f"Get playlist tracks error: {e}")
+            return []
+
+    def search_by_genre(self, genre: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Search tracks by genre"""
+        try:
+            # Spotify search supports genre: filter
+            results = self.sp.search(q=f'genre:"{genre}"', type='track', limit=limit)
+            return [self._format_track(item) for item in results['tracks']['items']]
+        except Exception as e:
+            logger.error(f"Search by genre error: {e}")
+            return []
+
+    def get_new_releases(self, country: str = 'US', limit: int = 10) -> List[Dict[str, Any]]:
+        """Get new album releases"""
+        try:
+            results = self.sp.new_releases(country=country, limit=limit)
+            albums = []
+            for album in results['albums']['items']:
+                albums.append({
+                    'id': album['id'],
+                    'name': album['name'],
+                    'artist': album['artists'][0]['name'] if album['artists'] else 'Unknown',
+                    'release_date': album.get('release_date', ''),
+                    'total_tracks': album.get('total_tracks', 0),
+                    'image': album['images'][0]['url'] if album.get('images') else None
+                })
+            return albums
+        except Exception as e:
+            logger.error(f"Get new releases error: {e}")
+            return []
+
     # ==================== Playback Control ====================
     
     def start_playback(
