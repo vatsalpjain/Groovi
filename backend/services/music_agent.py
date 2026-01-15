@@ -2,7 +2,7 @@
 Music Recommendation AI Agent
 
 Uses Groq LLM with function calling to explore Spotify's catalog
-and curate personalized song recommendations.
+via MCP (Model Context Protocol) and curate personalized song recommendations.
 
 The agent can:
 1. Search for artists, playlists, and tracks
@@ -14,13 +14,11 @@ The agent can:
 
 import json
 import logging
-from typing import Dict, Any
-import httpx
+from typing import Dict, Any, Optional
+
+from services.mcp_client import SpotifyMCPClient
 
 logger = logging.getLogger(__name__)
-
-# MCP Server URL for Spotify tools
-MCP_URL = "http://localhost:5000"
 
 # Maximum iterations for agent loop
 MAX_ITERATIONS = 5
@@ -156,55 +154,30 @@ AGENT_TOOLS = [
 ]
 
 # System prompt for the agent
-SYSTEM_PROMPT = """You are a music recommendation AI with access to Spotify's catalog.
+SYSTEM_PROMPT = """You are a music recommendation AI with access to Spotify tools.
 
-Your job is to find the PERFECT songs based on what the user describes.
-
-## AVAILABLE TOOLS:
-- search_artist: Find an artist by name
-- get_artist_top_tracks: Get top tracks of an artist  
-- get_related_artists: Find similar artists
-- search_tracks: Search tracks by keywords
-- search_playlists: Find themed playlists
-- get_playlist_tracks: Get tracks from a playlist
-- search_by_genre: Search by genre
-- get_genres: List all available genres
-- get_new_releases: Get new album releases
+Your goal: Find 5 PERFECT songs based on what the user describes.
 
 ## STRATEGY:
-1. If user mentions an ARTIST → search_artist → get their top tracks
-2. If user mentions a MOOD/ACTIVITY → search_playlists + search_tracks with relevant keywords
-3. If user mentions a GENRE → search_by_genre or search_tracks with genre keywords
-4. If user wants NEW music → get_new_releases
-5. **If user mentions a DECADE/ERA (80s, 90s, 2000s, etc.):**
-   - Search for iconic artists FROM THAT ERA (e.g., "90s hip hop" → search for Tupac, Notorious B.I.G., Dr. Dre)
-   - Include the decade in playlist search (e.g., "90s hip hop classics")
-   - Verify tracks are actually from that era!
+1. ARTIST mentioned → Use search_artist, then get_artist_top_tracks
+2. MOOD/ACTIVITY → Use search_tracks with descriptive keywords
+3. GENRE → Use search_by_genre
+4. NEW music → Use get_new_releases
 
-## EXAMPLES:
-- "Hindi Love Songs" -> search_artist("Arijit Singh"), search_artist("Shreya Ghoshal"), search_playlists("Hindi love songs")
-- "80s rock" → search_artist("Guns N Roses"), search_artist("Bon Jovi"), search_playlists("80s rock hits")
-- "2000s pop" → search_artist("Britney Spears"), search_artist("NSYNC"), search_playlists("2000s pop hits")
+## IMPORTANT:
+- Call 2-3 tools to gather song options
+- Do NOT explain your reasoning - just call the tools
+- After gathering data, return your final answer as JSON
 
-## RULES:
-- Make 2-4 tool calls to gather enough options
-- Pick the 5 BEST tracks that ACTUALLY match the user's request
-- For decade requests, ensure songs are from that decade!
-- Each track must have a reason for why it fits
-- Return ONLY valid Spotify track URIs
-
-## FINAL RESPONSE FORMAT (JSON):
-When you have enough tracks, respond with this JSON:
+## FINAL RESPONSE (JSON only):
 {
     "tracks": [
-        {"name": "...", "artist": "...", "uri": "spotify:track:...", "reason": "Why this fits"},
+        {"name": "Song Name", "artist": "Artist", "uri": "spotify:track:...", "reason": "Why it fits"},
         ... (exactly 5 tracks)
     ],
-    "mood": "detected mood/vibe",
-    "summary": "Brief explanation of your curation"
-}
-
-Think step by step. Explain your reasoning before each tool call."""
+    "mood": "detected mood",
+    "summary": "Brief curation explanation"
+}"""
 
 
 class MusicRecommendationAgent:
@@ -218,11 +191,17 @@ class MusicRecommendationAgent:
             groq_client: Initialized Groq client with API key
         """
         self.groq = groq_client
-        self.http_client = httpx.AsyncClient(timeout=30.0)
+        self.mcp_client: Optional[SpotifyMCPClient] = None
+    
+    async def _ensure_mcp_connected(self):
+        """Ensure MCP client is connected"""
+        if self.mcp_client is None or not self.mcp_client._connected:
+            self.mcp_client = SpotifyMCPClient()
+            await self.mcp_client.connect()
         
     async def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Execute a tool by calling the MCP server.
+        Execute a tool by calling the MCP server via stdio.
         
         Args:
             tool_name: Name of the tool to call
@@ -231,36 +210,13 @@ class MusicRecommendationAgent:
         Returns:
             Tool result from MCP server
         """
-        # Map tool names to endpoints
-        endpoint_map = {
-            "search_artist": "/tools/search_artist",
-            "get_artist_top_tracks": "/tools/artist_top_tracks",
-            "get_related_artists": "/tools/related_artists",
-            "search_tracks": "/tools/search_tracks",
-            "search_playlists": "/tools/search_playlists",
-            "get_playlist_tracks": "/tools/playlist_tracks",
-            "search_by_genre": "/tools/search_by_genre",
-            "get_genres": "/tools/genres",
-            "get_new_releases": "/tools/new_releases"
-        }
-        
-        endpoint = endpoint_map.get(tool_name)
-        if not endpoint:
-            return {"error": f"Unknown tool: {tool_name}"}
-        
         try:
-            url = f"{MCP_URL}{endpoint}"
-            response = await self.http_client.get(url, params=arguments)
-            
-            if response.status_code == 200:
-                return response.json()
-            else:
-                return {"error": f"API error: {response.status_code}", "detail": response.text}
-                
+            result = await self.mcp_client.call_tool(tool_name, arguments)
+            return result
         except Exception as e:
             logger.error(f"Tool execution error: {e}")
             return {"error": str(e)}
-    
+
     async def run(self, user_query: str) -> Dict[str, Any]:
         """
         Run the agent loop to get music recommendations.
@@ -271,6 +227,9 @@ class MusicRecommendationAgent:
         Returns:
             Dict with tracks, mood, summary, and thought_process
         """
+        # Connect to MCP server at startup (no delay during tool calls)
+        await self._ensure_mcp_connected()
+        
         # Track agent's thought process for UI display
         thought_process = []
         
@@ -469,7 +428,7 @@ Here are some tracks you found: {json.dumps(all_tracks[:20])}"""
         return {
             "tracks": unique_tracks[:5],
             "mood": "curated",
-            "summary": "Curated from AI agent exploration",
+            "summary": "Curated from AI agent exploration Just For Your mood",
             "thought_process": thought_process,
             "iterations": iterations
         }
@@ -505,6 +464,7 @@ Here are some tracks you found: {json.dumps(all_tracks[:20])}"""
         return enriched
     
     async def close(self):
-        """Close HTTP client"""
-        await self.http_client.aclose()
-
+        """Close MCP client connection"""
+        if self.mcp_client:
+            await self.mcp_client.disconnect()
+            self.mcp_client = None

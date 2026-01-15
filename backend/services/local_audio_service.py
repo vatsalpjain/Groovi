@@ -129,6 +129,43 @@ class LocalAudioService:
             logger.error(f"❌ Transcription failed: {e}")
             raise RuntimeError(f"Transcription failed: {e}")
     
+    def transcribe_audio_bytes(self, audio_data: bytes) -> str:
+        """
+        Transcribe raw audio bytes to text.
+        
+        This is a convenience method that handles temp file creation/cleanup.
+        
+        Args:
+            audio_data: Raw audio file bytes (mp3, wav, webm, etc.)
+            
+        Returns:
+            Transcribed text string
+        """
+        temp_path = None
+        
+        try:
+            # Save bytes to temp file (Whisper needs file path)
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                f.write(audio_data)
+                temp_path = f.name
+            
+            # Transcribe using local Whisper
+            transcript = self.transcribe(temp_path)
+            
+            if not transcript or transcript.strip() == "":
+                raise ValueError("No speech detected in audio")
+            
+            return transcript
+            
+        except Exception as e:
+            logger.error(f"❌ Transcription error: {e}")
+            raise RuntimeError(f"Failed to transcribe audio: {e}")
+            
+        finally:
+            # Cleanup temp file
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+    
     def synthesize(self, text: str, output_path: str = None) -> str:
         """
         Convert text to speech using Piper TTS

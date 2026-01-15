@@ -1,33 +1,29 @@
 """
 Groovi Music Recommender API
-Clean routes that delegate to service layer
-
-Now uses Spotify MCP for recommendations instead of direct Spotify API calls.
+Uses MCP protocol (stdio) for Spotify integration
 """
-import httpx
+import logging
 import uvicorn
-from typing import List
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
+from typing import List, Optional
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-
 from models.schemas import TextInput, RecommendationResponse, TranscriptionResponse, TTSRequest
 from services.mood_analyzer import mood_analyzer
-from services.audio_transcriber import audio_transcriber
 from services.local_audio_service import get_local_audio_service
+from services.spotify_auth import spotify_auth
+from services.mcp_client import get_mcp_client
 from config.settings import settings
-
-# MCP Server URL
-MCP_URL = "http://localhost:5000"
-
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 # Initialize FastAPI
 app = FastAPI(
     title=settings.API_TITLE,
     version=settings.API_VERSION,
-    description="AI-powered mood analysis and song recommendations"
+    description="AI-powered mood analysis and song recommendations via MCP"
 )
-
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -37,7 +33,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # ==================== Request Models ====================
 
 class PlaylistCreateRequest(BaseModel):
@@ -46,7 +41,71 @@ class PlaylistCreateRequest(BaseModel):
     track_uris: List[str]
     description: str = ""
     public: bool = False
+class RecommendationRequest(BaseModel):
+    mood: str
+    limit: int = 5
 
+class PlaybackRequest(BaseModel):
+    uris: Optional[List[str]] = None
+    device_id: Optional[str] = None
+
+class PlaylistAddRequest(BaseModel):
+    playlist_id: str
+    track_uris: List[str]
+
+# ==================== Spotify OAuth ====================
+
+@app.get("/auth/login")
+async def auth_login():
+    """Get Spotify OAuth authorization URL"""
+    return {"auth_url": spotify_auth.get_auth_url()}
+
+@app.get("/auth/login/redirect")
+async def auth_login_redirect():
+    """Redirect directly to Spotify OAuth"""
+    return RedirectResponse(url=spotify_auth.get_auth_url())
+
+@app.get("/callback")
+async def auth_callback(code: str = Query(...), state: Optional[str] = None):
+    """Handle Spotify OAuth callback"""
+    try:
+        spotify_auth.exchange_code(code)
+        
+        return HTMLResponse(content="""
+        <!DOCTYPE html>
+        <html>
+        <head><title>Spotify Connected</title></head>
+        <body style="font-family: Arial; text-align: center; padding: 50px;">
+            <h1>✅ Spotify Connected!</h1>
+            <p>You can close this window.</p>
+            <script>
+                if (window.opener) {
+                    window.opener.postMessage({ type: 'spotify-auth-success' }, '*');
+                    setTimeout(() => window.close(), 1500);
+                }
+            </script>
+        </body>
+        </html>
+        """)
+    except Exception as e:
+        logger.error(f"OAuth callback error: {e}")
+        raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
+
+@app.get("/auth/token")
+async def get_token():
+    """Get current access token for Web Playback SDK"""
+    token = spotify_auth.get_access_token()
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated. Please login first.")
+    return {"access_token": token}
+
+@app.get("/auth/status")
+async def auth_status():
+    """Check authentication status"""
+    return {
+        "authenticated": spotify_auth.is_authenticated(),
+        "user": spotify_auth.get_user_info()
+    }
 
 # ==================== Health Check ====================
 
@@ -57,9 +116,8 @@ def root():
         "message": "Groovi API is running!",
         "version": settings.API_VERSION,
         "status": "healthy",
-        "mcp_url": MCP_URL
+        "mcp_transport": "stdio"  
     }
-
 
 # ==================== Audio Transcription ====================
 
@@ -84,7 +142,9 @@ async def transcribe_audio(audio: UploadFile = File(...)):
         if len(audio_data) > 10 * 1024 * 1024:
             raise HTTPException(status_code=400, detail="File too large. Max 10MB allowed.")
         
-        transcript = audio_transcriber.transcribe_audio(audio_data)
+        # Use consolidated local audio service
+        local_service = get_local_audio_service()
+        transcript = local_service.transcribe_audio_bytes(audio_data)
         
         return {
             "transcript": transcript,
@@ -97,17 +157,16 @@ async def transcribe_audio(audio: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
 
-
 # ==================== Mood Analysis & Recommendations ====================
 
 @app.post("/recommend")
 async def recommend_songs(text_input: TextInput):
     """
-    AI Agent-based music recommendation
+    AI Agent-based music recommendation via MCP
     
     Flow:
     1. Use AI Agent with Groq function calling
-    2. Agent explores Spotify via MCP tools
+    2. Agent explores Spotify via MCP tools (stdio)
     3. Agent curates 5 best tracks with reasoning
     4. Returns tracks + thought process for UI display
     """
@@ -115,7 +174,7 @@ async def recommend_songs(text_input: TextInput):
         raise HTTPException(status_code=400, detail="No text provided")
     
     user_query = text_input.text.strip()
-    print(f"🎵 User query: {user_query}")
+    logger.info(f"🎵 User query: {user_query}")
     
     # Import agent here to avoid circular imports
     from services.music_agent import MusicRecommendationAgent
@@ -126,14 +185,13 @@ async def recommend_songs(text_input: TextInput):
         groq_client = Groq(api_key=settings.GROQ_API_KEY)
         agent = MusicRecommendationAgent(groq_client)
         
-        # Run the agent
+        # Run the agent (uses MCP client internally)
         result = await agent.run(user_query)
         await agent.close()
         
         # Check if agent succeeded
         if "error" in result:
-            print(f"❌ Agent error: {result.get('error')}")
-            # Fall back to simple mood-based search
+            logger.error(f"❌ Agent error: {result.get('error')}")
             return await fallback_recommend(user_query)
         
         # Format response
@@ -150,7 +208,7 @@ async def recommend_songs(text_input: TextInput):
                 "uri": track.get("uri", ""),
                 "album_art": track.get("album_art", ""),
                 "external_url": track.get("external_url", ""),
-                "reason": track.get("reason", "")  # Why this track was chosen
+                "reason": track.get("reason", "")
             })
         
         return {
@@ -162,44 +220,59 @@ async def recommend_songs(text_input: TextInput):
                 "intensity": "moderate"
             },
             "songs": songs,
-            "thought_process": result.get("thought_process", []),  # Agent's reasoning
+            "thought_process": result.get("thought_process", []),
             "agent_iterations": result.get("iterations", 0)
         }
         
     except Exception as e:
-        print(f"❌ Agent failed: {e}")
-        # Fall back to simple approach
+        logger.error(f"❌ Agent failed: {e}")
         return await fallback_recommend(user_query)
-
 
 async def fallback_recommend(user_query: str):
     """
-    Fallback to simple mood-based recommendation when agent fails
+    Fallback to simple mood-based recommendation when agent fails.
+    Uses MCP client via stdio instead of HTTP.
     """
-    # Analyze mood with Groq
+    # Analyze mood with Groq/VADER
     mood_analysis, _ = mood_analyzer.analyze(user_query)
     mood_category = mood_analysis['mood_category']
     
-    print(f"🎯 Fallback: Using mood '{mood_category}'")
+    logger.info(f"🎯 Fallback: Using mood '{mood_category}'")
     
-    # Get recommendations from MCP
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{MCP_URL}/recommendations",
-                json={"mood": mood_category, "limit": 5}
-            )
+        # Use MCP client to search for tracks
+        async with get_mcp_client() as mcp:
+            # Search based on mood
+            mood_queries = {
+                "happy": "happy upbeat feel good",
+                "energetic": "energetic pump up workout",
+                "calm": "calm relaxing peaceful",
+                "sad": "emotional sad melancholy",
+                "angry": "intense angry powerful",
+                "anxious": "soothing calm ambient",
+                "romantic": "love romantic ballad",
+                "neutral": "popular hits top"
+            }
+            query = mood_queries.get(mood_category, "popular hits")
             
-            if response.status_code != 200:
-                raise HTTPException(status_code=502, detail="Failed to get recommendations")
-            
-            mcp_data = response.json()
-            songs = mcp_data.get("tracks", [])
-            
-    except httpx.ConnectError:
-        raise HTTPException(status_code=503, detail="MCP server not available")
+            result = await mcp.call_tool("search_tracks", {"query": query, "limit": 5})
+            songs = result.get("tracks", [])
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed: {str(e)}")
+        logger.error(f"❌ MCP fallback failed: {e}")
+        # Ultimate fallback - use curated library
+        from data.mood_libraries import MOOD_SONG_LIBRARIES
+        import random
+        
+        curated = MOOD_SONG_LIBRARIES.get(mood_category, [])
+        songs = random.sample(curated, min(5, len(curated)))
+        songs = [{
+            "name": s["name"],
+            "artist": s["artist"],
+            "uri": f"spotify:search:{s['name']} {s['artist']}",
+            "album_art": "",
+            "external_url": f"https://open.spotify.com/search/{s['name']}"
+        } for s in songs]
     
     return {
         "mood_analysis": {
@@ -210,10 +283,9 @@ async def fallback_recommend(user_query: str):
             "intensity": mood_analysis['intensity']
         },
         "songs": songs[:5],
-        "thought_process": [],  # No agent thoughts in fallback
+        "thought_process": [],
         "agent_iterations": 0
     }
-
 
 # ==================== Spotify Playlist Management ====================
 
@@ -222,46 +294,38 @@ async def create_playlist(request: PlaylistCreateRequest):
     """
     Create a Spotify playlist via MCP
     
-    Requires user to be authenticated with Spotify via MCP.
+    Requires user to be authenticated with Spotify.
     """
+    if not spotify_auth.is_authenticated():
+        raise HTTPException(status_code=401, detail="Not authenticated. Login first.")
+    
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{MCP_URL}/playlist/create",
-                json={
-                    "name": request.name,
-                    "description": request.description,
-                    "public": request.public,
-                    "track_uris": request.track_uris
-                }
-            )
+        async with get_mcp_client() as mcp:
+            result = await mcp.call_tool("create_playlist", {
+                "name": request.name,
+                "description": request.description,
+                "track_uris": request.track_uris
+            })
             
-            if response.status_code == 401:
-                raise HTTPException(status_code=401, detail="Not authenticated. Login via MCP first.")
+            if "error" in result:
+                raise HTTPException(status_code=500, detail=result["error"])
             
-            if response.status_code != 200:
-                raise HTTPException(status_code=502, detail="Failed to create playlist")
+            return {"playlist": result.get("playlist")}
             
-            return response.json()
-            
-    except httpx.ConnectError:
-        raise HTTPException(status_code=503, detail="MCP server not available")
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"❌ Playlist creation failed: {e}")
         raise HTTPException(status_code=500, detail=f"Playlist creation failed: {str(e)}")
 
 
 @app.get("/spotify/auth/status")
 async def spotify_auth_status():
-    """Check if user is authenticated with Spotify via MCP"""
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(f"{MCP_URL}/auth/status")
-            return response.json()
-    except Exception:
-        return {"authenticated": False, "mcp_available": False}
-
+    """Check if user is authenticated with Spotify"""
+    return {
+        "authenticated": spotify_auth.is_authenticated(),
+        "user": spotify_auth.get_user_info()
+    }
 
 # ==================== Text-to-Speech ====================
 
@@ -300,15 +364,15 @@ async def synthesize_speech(request: TTSRequest):
 # ==================== Server Startup ====================
 
 def start_server():
-    print("🎵 Starting Groovi Backend Server...")
-    print("📡 Server: http://localhost:8000")
-    print("📚 API Docs: http://localhost:8000/docs")
-    print(f"🔗 MCP Server: {MCP_URL}")
+    logger.info("🎵 Starting Groovi Backend Server...")
+    logger.info("📡 Server: http://localhost:5000")
+    logger.info("📚 API Docs: http://localhost:5000/docs")
+    logger.info("� MCP Transport: stdio")
     
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=5000,
         reload=True,
         log_level="info"
     )
