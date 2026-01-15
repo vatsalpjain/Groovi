@@ -45,8 +45,8 @@ export function AgentLoader() {
     }, [])
 
     return (
-        <div className="mt-8 p-6 rounded-2xl bg-gradient-to-br from-purple-900/40 via-zinc-900 to-blue-900/40
-                    border border-purple-500/30 backdrop-blur-xl">
+        <div className="mt-12 p-6 rounded-2xl bg-white/[0.02] backdrop-blur-2xl
+                    border border-white/[0.06]">
             {/* Header */}
             <div className="flex items-center gap-3 mb-6">
                 {/* Animated brain */}

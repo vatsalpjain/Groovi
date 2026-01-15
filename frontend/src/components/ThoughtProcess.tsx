@@ -19,6 +19,7 @@ interface ThoughtProcessProps {
     steps: ThoughtStep[]
     iterations: number
     isExpanded?: boolean
+    theme?: 'light' | 'dark'
 }
 
 // Tool icons for visual flair
@@ -44,115 +45,129 @@ const formatToolName = (tool: string): string => {
         .replace(/\b\w/g, c => c.toUpperCase())
 }
 
-export function ThoughtProcess({ steps, iterations, isExpanded: initialExpanded = false }: ThoughtProcessProps) {
+export function ThoughtProcess({ steps, iterations, isExpanded: initialExpanded = false, theme = 'dark' }: ThoughtProcessProps) {
     const [isExpanded, setIsExpanded] = useState(initialExpanded)
 
     if (!steps || steps.length === 0) {
         return null
     }
 
+    const isDark = theme === 'dark'
+
     return (
-        <div className="mt-6 bg-gradient-to-br from-purple-500/10 via-blue-500/10 to-cyan-500/10 
-                    rounded-2xl border border-white/10 backdrop-blur-sm overflow-hidden">
+        <div className={`mt-8 backdrop-blur-xl rounded-3xl border overflow-hidden transition-all duration-300
+                        ${isDark
+                ? 'bg-white/[0.02] border-white/[0.06]'
+                : 'bg-zinc-50/50 border-zinc-200'}`}>
             {/* Header - Click to expand */}
             <button
                 onClick={() => setIsExpanded(!isExpanded)}
-                className="w-full px-5 py-4 flex items-center justify-between 
-                   hover:bg-white/5 transition-colors"
+                className={`w-full px-6 py-5 flex items-center justify-between transition-colors group
+                           ${isDark ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}
             >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-4">
                     {/* Animated brain icon */}
                     <div className="relative">
-                        <span className="text-2xl">🧠</span>
+                        <span className="text-2xl transition-transform group-hover:scale-110 duration-300">🧠</span>
                         <span className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full 
                            animate-pulse shadow-lg shadow-green-500/50" />
                     </div>
 
                     <div className="text-left">
-                        <h3 className="font-semibold text-white">AI Thought Process</h3>
-                        <p className="text-xs text-zinc-400">
-                            {iterations} iterations • {steps.length} tool calls
-                        </p>
+                        <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-zinc-800'}`}>
+                            AI Thought Process
+                        </h3>
+                        <div className={`flex items-center gap-2 text-xs ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                            <span className={`px-2 py-0.5 rounded-full border
+                                           ${isDark ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/5'}`}>
+                                {iterations} iterations
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-full border
+                                           ${isDark ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/5'}`}>
+                                {steps.length} steps
+                            </span>
+                        </div>
                     </div>
                 </div>
 
                 {/* Expand/Collapse icon */}
-                <div className={`transform transition-transform duration-200 
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center
+                               transform transition-all duration-300
+                               ${isDark ? 'bg-white/5 group-hover:bg-white/10' : 'bg-black/5 group-hover:bg-black/10'}
                         ${isExpanded ? 'rotate-180' : ''}`}>
-                    <svg className="w-5 h-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className={`w-5 h-5 ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
                 </div>
             </button>
 
-            {/* Expandable content */}
-            <div className={`transition-all duration-300 ease-in-out overflow-hidden
-                      ${isExpanded ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                <div className="px-5 pb-5 space-y-3 overflow-y-auto max-h-[400px]">
+            {/* Expandable content - Vertical Stack */}
+            <div className={`transition-all duration-500 ease-in-out border-t
+                      ${isExpanded ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'}
+                      ${isDark ? 'border-white/[0.06]' : 'border-zinc-200'}`}>
+
+                <div className="p-6 overflow-y-auto max-h-[500px] custom-scrollbar space-y-4">
                     {steps.map((step, index) => (
-                        <div
-                            key={index}
-                            className="relative pl-8 pb-3 border-l-2 border-purple-500/30 last:border-transparent"
-                        >
-                            {/* Timeline dot */}
-                            <div className="absolute left-[-9px] top-0 w-4 h-4 rounded-full 
-                            bg-gradient-to-br from-purple-500 to-blue-500 
-                            flex items-center justify-center text-[8px] font-bold text-white
-                            shadow-lg shadow-purple-500/30">
+                        <div key={index} className={`relative pl-6 border-l-2 last:border-transparent pb-2 group
+                                                  ${isDark ? 'border-white/10' : 'border-zinc-200'}`}>
+
+                            {/* Timeline Dot */}
+                            <div className={`absolute -left-[9px] top-0 w-4 h-4 rounded-full border flex items-center justify-center text-[8px] transition-colors
+                                          ${isDark
+                                    ? 'bg-white/10 border-white/20 text-zinc-400 group-hover:bg-purple-500/20 group-hover:text-purple-300 group-hover:border-purple-500/40'
+                                    : 'bg-zinc-200 border-zinc-300 text-zinc-600 group-hover:bg-purple-100 group-hover:text-purple-700 group-hover:border-purple-300'}`}>
                                 {step.iteration}
                             </div>
 
-                            {/* Step content */}
-                            <div className="bg-white/5 rounded-xl p-4 border border-white/10 
-                            hover:border-purple-500/30 transition-colors">
-                                {/* Tool badge */}
-                                {step.tool && (
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <span className="text-lg">{getToolIcon(step.tool)}</span>
-                                        <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 
-                                   text-xs font-medium rounded-full">
-                                            {formatToolName(step.tool)}
-                                        </span>
-                                    </div>
-                                )}
+                            {/* Step Card */}
+                            <div className={`rounded-xl p-4 border transition-all duration-300
+                                          ${isDark
+                                    ? 'bg-white/[0.03] border-white/[0.04] hover:bg-white/[0.05] hover:border-purple-500/20'
+                                    : 'bg-white border-zinc-200 hover:border-purple-300 hover:shadow-sm'}`}>
 
-                                {/* Thought/reasoning */}
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        {step.tool ? (
+                                            <>
+                                                <span className="text-lg opacity-80">{getToolIcon(step.tool)}</span>
+                                                <span className={`text-sm font-medium ${isDark ? 'text-purple-200/80' : 'text-purple-700'}`}>
+                                                    {formatToolName(step.tool)}
+                                                </span>
+                                            </>
+                                        ) : (
+                                            <span className={`text-sm font-medium ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>Thinking...</span>
+                                        )}
+                                    </div>
+                                    {step.error && (
+                                        <span className="text-xs text-red-500 bg-red-100 px-2 py-0.5 rounded">Error</span>
+                                    )}
+                                </div>
+
                                 {step.thought && (
-                                    <p className="text-sm text-zinc-300 leading-relaxed mb-2">
+                                    <p className={`text-sm leading-relaxed ${isDark ? 'text-zinc-400' : 'text-zinc-700'}`}>
                                         {step.thought}
                                     </p>
                                 )}
 
-                                {/* Arguments */}
                                 {step.arguments && Object.keys(step.arguments).length > 0 && (
-                                    <div className="flex flex-wrap gap-2 mt-2">
-                                        {Object.entries(step.arguments).map(([key, value]) => (
-                                            <span
-                                                key={key}
-                                                className="px-2 py-1 bg-zinc-800/50 text-zinc-400 
-                                 text-xs rounded-lg font-mono"
-                                            >
-                                                {key}: <span className="text-cyan-400">{String(value)}</span>
+                                    <div className="mt-2 flex flex-wrap gap-1.5 opacity-80 hover:opacity-100 transition-opacity">
+                                        {Object.entries(step.arguments).slice(0, 3).map(([key, value]) => (
+                                            <span key={key} className={`text-[10px] px-1.5 py-0.5 rounded font-mono
+                                                                    ${isDark ? 'bg-white/5 text-zinc-500' : 'bg-zinc-100 text-zinc-600'}`}>
+                                                {key}: {String(value).substring(0, 15)}{String(value).length > 15 ? '...' : ''}
                                             </span>
                                         ))}
-                                    </div>
-                                )}
-
-                                {/* Error */}
-                                {step.error && (
-                                    <div className="flex items-center gap-2 text-red-400 text-sm mt-2">
-                                        <span>❌</span>
-                                        <span>{step.error}</span>
                                     </div>
                                 )}
                             </div>
                         </div>
                     ))}
 
-                    {/* Completion indicator */}
-                    <div className="flex items-center gap-2 pl-8 text-green-400 text-sm font-medium">
-                        <span className="text-lg">✅</span>
-                        <span>Recommendations curated!</span>
+                    {/* Completion Indicator */}
+                    <div className={`flex items-center gap-3 pl-2 pt-2 text-sm font-medium tracking-wide
+                                  ${isDark ? 'text-green-400/80' : 'text-green-600'}`}>
+                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                        <span>PROCESS COMPLETE</span>
                     </div>
                 </div>
             </div>

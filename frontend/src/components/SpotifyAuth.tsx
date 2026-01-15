@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 
-// MCP Server URL
-const MCP_URL = 'http://localhost:5000'
+// Backend API URL (OAuth is now handled by backend)
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 interface SpotifyAuthProps {
     onAuthChange?: (isAuthenticated: boolean) => void
@@ -37,7 +37,7 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
     // Check if already authenticated
     const checkAuthStatus = async () => {
         try {
-            const response = await fetch(`${MCP_URL}/auth/status`)
+            const response = await fetch(`${API_URL}/auth/status`)
             const data = await response.json()
             setIsAuthenticated(data.authenticated)
             onAuthChange?.(data.authenticated)
@@ -52,7 +52,7 @@ export function SpotifyAuth({ onAuthChange }: SpotifyAuthProps) {
     // Open OAuth login popup
     const handleLogin = async () => {
         try {
-            const response = await fetch(`${MCP_URL}/auth/login`)
+            const response = await fetch(`${API_URL}/auth/login`)
             const data = await response.json()
 
             // Open popup for OAuth flow

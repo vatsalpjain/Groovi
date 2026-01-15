@@ -4,71 +4,84 @@ interface SongListProps {
     songs: Song[]
     currentTrackId: string | null
     onSongSelect: (trackId: string | null) => void
+    theme?: 'light' | 'dark'
 }
 
 /**
- * SongList - Glassmorphism playlist container with stacked song cards
+ * SongList - Playlist container with stacked song cards
  */
-export function SongList({ songs, currentTrackId, onSongSelect }: SongListProps) {
+export function SongList({ songs, currentTrackId, onSongSelect, theme = 'dark' }: SongListProps) {
     if (songs.length === 0) return null
 
+    // Animation delay classes for staggered entry
+    const delayClasses = ['animate-delay-1', 'animate-delay-2', 'animate-delay-3', 'animate-delay-4', 'animate-delay-5']
+
     return (
-        <div className="mt-8">
-            <h2 className="text-2xl font-bold mb-6">Your Personalized Playlist</h2>
+        <div className="animate-fade-in space-y-2">
+            {songs.map((song, index) => {
+                // Extract track ID from URI (spotify:track:XXXXX)
+                const trackId = song.uri.split(':')[2]
+                const isPlaying = currentTrackId === trackId
+                const delayClass = delayClasses[index] || ''
 
-            {/* Glassmorphism container */}
-            <div className="bg-zinc-100/50 dark:bg-zinc-900/50 backdrop-blur-xl 
-                      border border-zinc-200/50 dark:border-zinc-700/50 
-                      rounded-3xl p-4 space-y-3">
-                {songs.map((song, index) => {
-                    // Extract track ID from URI (spotify:track:XXXXX)
-                    const trackId = song.uri.split(':')[2]
-                    const isPlaying = currentTrackId === trackId
-
-                    return (
-                        <button
-                            key={song.uri}
-                            onClick={() => onSongSelect(isPlaying ? null : trackId)}
-                            className={`w-full flex items-center gap-4 p-3 rounded-2xl text-left
-                         transition-all duration-200
+                return (
+                    <button
+                        key={song.uri}
+                        onClick={() => onSongSelect(isPlaying ? null : trackId)}
+                        className={`w-full flex items-center gap-4 p-3 rounded-xl text-left
+                         transition-all duration-300 ease-out hover-lift animate-fade-in ${delayClass}
                          ${isPlaying
-                                    ? 'bg-purple-500/20 border border-purple-500/50 shadow-lg shadow-purple-500/10'
-                                    : 'bg-white/50 dark:bg-zinc-800/50 border border-transparent hover:bg-white/80 dark:hover:bg-zinc-800/80 hover:border-zinc-200/50 dark:hover:border-zinc-600/50'}`}
-                        >
-                            {/* Track number */}
-                            <span className="w-6 text-center text-sm font-medium text-zinc-400">
-                                {isPlaying ? '▶' : index + 1}
-                            </span>
+                                ? 'bg-purple-500/20 border border-purple-500/40 shadow-lg shadow-purple-500/10'
+                                : theme === 'dark'
+                                    ? 'bg-white/[0.05] border border-white/[0.1] hover:bg-white/[0.1]'
+                                    : 'bg-zinc-100/80 border border-zinc-200/50 hover:bg-zinc-100'}`}
+                    >
+                        {/* Track number */}
+                        <span className={`w-6 text-center text-sm font-medium 
+                                        ${isPlaying ? 'text-purple-500' : theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                            {isPlaying ? '▶' : index + 1}
+                        </span>
 
-                            {/* Album Art */}
+                        {/* Album Art */}
+                        {song.album_art ? (
                             <img
                                 src={song.album_art}
                                 alt={`${song.name} album art`}
                                 className="w-12 h-12 rounded-xl object-cover shadow-md"
                             />
-
-                            {/* Song Info */}
-                            <div className="flex-1 min-w-0">
-                                <p className={`font-semibold truncate ${isPlaying ? 'text-purple-500' : 'text-zinc-900 dark:text-white'}`}>
-                                    {song.name}
-                                </p>
-                                <p className="text-zinc-500 dark:text-zinc-400 text-sm truncate">
-                                    {song.artist}
-                                </p>
+                        ) : (
+                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center
+                                           ${theme === 'dark'
+                                    ? 'bg-white/[0.05] border border-white/[0.08] text-zinc-500'
+                                    : 'bg-zinc-200 border border-zinc-300 text-zinc-400'}`}>
+                                <span className="text-lg">🎵</span>
                             </div>
+                        )}
 
-                            {/* Playing indicator - animated bars */}
-                            {isPlaying && (
-                                <div className="flex gap-0.5">
-                                    <span className="w-1 h-4 bg-purple-500 rounded-full animate-pulse" />
-                                    <span className="w-1 h-4 bg-purple-500 rounded-full animate-pulse delay-75" />
-                                    <span className="w-1 h-4 bg-purple-500 rounded-full animate-pulse delay-150" />
-                                </div>
-                            )}
-                        </button>
-                    )
-                })}
-            </div>
+                        {/* Song Info */}
+                        <div className="flex-1 min-w-0">
+                            <p className={`font-semibold truncate 
+                                          ${isPlaying
+                                    ? 'text-purple-500'
+                                    : theme === 'dark' ? 'text-white' : 'text-zinc-900'}`}>
+                                {song.name}
+                            </p>
+                            <p className={`text-sm truncate ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                                {song.artist}
+                            </p>
+                        </div>
+
+                        {/* Playing indicator - animated bars */}
+                        {isPlaying && (
+                            <div className="flex gap-0.5">
+                                <span className="w-1 h-4 bg-purple-500 rounded-full animate-pulse" />
+                                <span className="w-1 h-4 bg-purple-500 rounded-full animate-pulse delay-75" />
+                                <span className="w-1 h-4 bg-purple-500 rounded-full animate-pulse delay-150" />
+                            </div>
+                        )}
+                    </button>
+                )
+            })}
         </div>
     )
 }

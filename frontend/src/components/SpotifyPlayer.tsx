@@ -90,6 +90,8 @@ export function SpotifyPlayer({ trackUris, isAuthenticated, startTrackIndex = 0,
     const [isLiked, setIsLiked] = useState(false)
 
     const progressInterval = useRef<number | null>(null)
+    const hasStartedPlayback = useRef(false)  // Prevent re-triggering playback on re-renders
+    const lastStartTrackIndex = useRef(startTrackIndex)  // Track user-initiated track changes
 
     // Load Spotify Web Playback SDK
     useEffect(() => {
@@ -226,9 +228,18 @@ export function SpotifyPlayer({ trackUris, isAuthenticated, startTrackIndex = 0,
     // Start playback when device is ready and tracks are available
     useEffect(() => {
         if (isReady && deviceId && trackUris.length > 0) {
-            startPlayback()
+            // Only start playback if:
+            // 1. First time (hasn't started yet)
+            // 2. User clicked a different track (startTrackIndex changed)
+            const userChangedTrack = lastStartTrackIndex.current !== startTrackIndex
+
+            if (!hasStartedPlayback.current || userChangedTrack) {
+                hasStartedPlayback.current = true
+                lastStartTrackIndex.current = startTrackIndex
+                startPlayback()
+            }
         }
-    }, [isReady, deviceId, trackUris, startTrackIndex])  // Re-trigger when selected track changes
+    }, [isReady, deviceId, trackUris.length, startTrackIndex])  // Only depend on length, not array ref
 
     // Update progress bar
     useEffect(() => {

@@ -34,13 +34,8 @@ OAUTH_SCOPES = [
 ]
 
 
-class SpotifyMCPClient:
-    """
-    Spotify client with dual authentication:
-    - Client Credentials for public API (search, recommendations)
-    - User OAuth for playback and playlist management
-    """
-    
+class SpotifyAPI:
+    """Spotify REST API wrapper using Spotipy"""
     def __init__(self):
         """Initialize both Spotify clients"""
         # Client Credentials - for public endpoints (always available)
@@ -83,63 +78,6 @@ class SpotifyMCPClient:
                 logger.warning(f"⚠️ Could not restore user session: {e}")
                 self.user_sp = None
                 self._refresh_token = None
-
-    # ==================== OAuth Methods ====================
-    
-    def get_auth_url(self) -> str:
-        """Get Spotify OAuth authorization URL for user login"""
-        return self.oauth.get_authorize_url()
-
-    def exchange_code(self, code: str) -> Dict[str, Any]:
-        """
-        Exchange authorization code for access tokens.
-        Saves refresh token to .env for persistence.
-        """
-        try:
-            token_info = self.oauth.get_access_token(code, as_dict=True)
-            
-            # Store refresh token in memory AND save to .env
-            self._refresh_token = token_info['refresh_token']
-            self._save_refresh_token(token_info['refresh_token'])
-            
-            # Create authenticated user client
-            self.user_sp = spotipy.Spotify(auth=token_info['access_token'])
-            
-            logger.info("✅ Spotify user authenticated successfully")
-            return {
-                "success": True,
-                "expires_in": token_info.get('expires_in', 3600)
-            }
-        except Exception as e:
-            logger.error(f"❌ OAuth token exchange failed: {e}")
-            raise
-
-    def _save_refresh_token(self, refresh_token: str):
-        """Save refresh token to .env file for persistence"""
-        # Save to spotify_mcp/.env (parent of this file's directory)
-        env_path = Path(__file__).parent / ".env"
-        
-        # Read existing .env content
-        env_content = ""
-        if env_path.exists():
-            env_content = env_path.read_text()
-        
-        # Update or add SPOTIFY_REFRESH_TOKEN
-        lines = env_content.strip().split('\n') if env_content.strip() else []
-        updated = False
-        
-        for i, line in enumerate(lines):
-            if line.startswith('SPOTIFY_REFRESH_TOKEN='):
-                lines[i] = f'SPOTIFY_REFRESH_TOKEN={refresh_token}'
-                updated = True
-                break
-        
-        if not updated:
-            lines.append(f'SPOTIFY_REFRESH_TOKEN={refresh_token}')
-        
-        # Write back
-        env_path.write_text('\n'.join(lines) + '\n')
-        logger.info("✅ Refresh token saved to .env")
 
     def get_access_token(self) -> Optional[str]:
         """Get current access token for Web Playback SDK"""
@@ -501,4 +439,4 @@ class SpotifyMCPClient:
 
 
 # Singleton instance
-spotify_client = SpotifyMCPClient()
+spotify_api = SpotifyAPI()
