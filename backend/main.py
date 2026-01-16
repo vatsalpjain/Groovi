@@ -11,10 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from models.schemas import TextInput, RecommendationResponse, TranscriptionResponse, TTSRequest
 from services.mood_analyzer import mood_analyzer
-from services.local_audio_service import get_local_audio_service
+from voice_ai.local_audio_service import get_local_audio_service
+from voice_ai.voice_assistant import VoiceAssistant
 from services.spotify_auth import spotify_auth
 from services.mcp_client import get_mcp_client
 from config.settings import settings
+from fastapi import WebSocket, WebSocketDisconnect
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -118,6 +120,51 @@ def root():
         "status": "healthy",
         "mcp_transport": "stdio"  
     }
+
+# ==================== WebSocket ====================
+
+@app.websocket("/ws/voice")
+async def voice_websocket(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time voice interaction.
+    
+    Client sends: Binary audio chunks (16kHz, 16-bit PCM)
+    Server sends: JSON events + Binary audio chunks
+    """
+    await websocket.accept()
+    logger.info("🔌 WebSocket connected")
+    
+    # Tell frontend we're loading models (prevents timeout)
+    await websocket.send_json({"event": "loading", "message": "Loading voice models..."})
+    
+    # Instantiate VoiceAssistant for this WebSocket session (takes 5-10 seconds)
+    voice_assistant = VoiceAssistant()
+    
+    # Tell frontend we're ready to receive audio
+    await websocket.send_json({"event": "ready"})
+    logger.info("✅ Voice models loaded - ready for audio")
+    
+    try:
+        while True:
+            # Receive audio bytes from client
+            audio_chunk = await websocket.receive_bytes()
+            
+            # Process through voice assistant state machine
+            async for event in voice_assistant.process_audio(audio_chunk):
+                if event.get("event") == "audio":
+                    # Binary audio data - send as bytes
+                    await websocket.send_bytes(event["data"])
+                else:
+                    # JSON event - send as JSON
+                    await websocket.send_json(event)
+            
+    except WebSocketDisconnect:
+        logger.info("🔌 WebSocket disconnected")
+    finally:
+        # Clean up models and free RAM
+        voice_assistant.cleanup()
+        logger.info("🧹 Models unloaded - RAM freed")
+
 
 # ==================== Audio Transcription ====================
 

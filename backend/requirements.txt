@@ -20,6 +20,13 @@ faster-whisper
 piper-tts
 soundfile
 
+# Voice Pipeline Dependencies
+openwakeword
+torch  # Required for Silero VAD
+torchaudio  # Required for Silero VAD audio processing
+onnxruntime  # Required for ONNX model inference
+numpy  # Required for audio processing
+
 # HTTP Requests
 requests
 httpx  # Async HTTP client for MCP calls

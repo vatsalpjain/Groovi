@@ -3,6 +3,8 @@ import { getRecommendations, ApiError } from './services/api'
 import { useTheme } from './hooks/useTheme'
 import { useSmoothScroll } from './hooks/useSmoothScroll'
 import { useScrollPosition } from './hooks/useScrollPosition'
+import { useVoiceWebSocket } from './hooks/useVoiceWebSocket'
+import { useAudioCapture } from './hooks/useAudioCapture'
 import { AudioRecorder, type RecordingState } from './components/AudioRecorder'
 import { AIOrb, type OrbState } from './components/AIOrb'
 import { TTSButton } from './components/TTSButton'
@@ -36,12 +38,87 @@ function App() {
   const [thoughtProcess, setThoughtProcess] = useState<ThoughtStep[]>([])
   const [agentIterations, setAgentIterations] = useState(0)
 
+  // Voice mode toggle
+  const [voiceMode, setVoiceMode] = useState(false)
+  const [voiceReady, setVoiceReady] = useState(false) // True when backend models are loaded
+
   // AI Orb state
   const [recordingState, setRecordingState] = useState<RecordingState>('idle')
   const [orbState, setOrbState] = useState<OrbState>('idle')
 
-  // Derive orb state from recording state and loading state
+  // Voice WebSocket connection
+  const { isConnected, connect, disconnect, sendAudio } = useVoiceWebSocket({
+    onMessage: (event) => {
+      console.log('Voice event:', event)
+
+      if (event.event === 'loading') {
+        // Backend is loading models - show thinking state
+        setOrbState('thinking')
+        setVoiceReady(false)
+      } else if (event.event === 'ready') {
+        // Backend models loaded - now safe to stream audio
+        console.log('✅ Voice models ready')
+        setVoiceReady(true)
+        setOrbState('idle') // Waiting for wake word
+      } else if (event.event === 'wake_word_detected') {
+        setOrbState('recording') // User said "Hey Groovi"
+      } else if (event.event === 'listening') {
+        setOrbState('recording') // Listening for speech
+      } else if (event.event === 'transcript') {
+        setMoodText(event.text)
+        setOrbState('thinking')
+      } else if (event.event === 'songs') {
+        // Music agent found songs - display in UI
+        setSongs(event.songs)
+      } else if (event.event === 'response') {
+        // Agent responded
+        setOrbState('complete')
+      } else if (event.event === 'interrupted') {
+        setOrbState('idle')
+      } else if (event.event === 'voice_mode_stop') {
+        // User said "pause" or "stop" - switch to click mode
+        console.log('🛑 Voice mode stopped by user')
+        setVoiceMode(false)
+        setOrbState('idle')
+      } else if (event.event === 'idle_timeout') {
+        // Idle for 5 seconds - waiting for wake word
+        setOrbState('idle')
+      }
+    },
+    onAudio: (audioBlob) => {
+      // Play TTS audio (WAV format from backend)
+      const wavBlob = new Blob([audioBlob], { type: 'audio/wav' })
+      const url = URL.createObjectURL(wavBlob)
+      const audio = new Audio(url)
+      audio.play().catch(err => {
+        console.error('Audio playback error:', err)
+      })
+      // Cleanup URL after playback
+      audio.onended = () => URL.revokeObjectURL(url)
+    },
+    onError: (error) => {
+      console.error('Voice mode error:', error)
+      setError(`Voice mode error: ${error}. Switching to click mode.`)
+      setVoiceMode(false) // Auto-disable voice mode
+      setVoiceReady(false)
+      setOrbState('idle')
+    },
+    onConnectionChange: (state) => {
+      if (state === 'error') {
+        setError('Unable to connect to voice server. Switching to click mode.')
+        setVoiceMode(false) // Auto-disable voice mode
+        setVoiceReady(false)
+        setOrbState('idle')
+      } else if (state === 'disconnected') {
+        setVoiceReady(false)
+      }
+    }
+  })
+
+  // Derive orb state from recording state and loading state (Click Mode only)
   useEffect(() => {
+    if (voiceMode) return // Don't override orb state in voice mode
+
     if (recordingState === 'recording') {
       setOrbState('recording')
     } else if (recordingState === 'transcribing' || isLoading) {
@@ -54,7 +131,7 @@ function App() {
     } else if (orbState !== 'complete') {
       setOrbState('idle')
     }
-  }, [recordingState, isLoading, moodAnalysis])
+  }, [recordingState, isLoading, moodAnalysis, voiceMode])
 
   // Spotify state
   const [isSpotifyConnected, setIsSpotifyConnected] = useState(false)
@@ -70,6 +147,42 @@ function App() {
     if (!currentTrackId) return 0
     return songs.findIndex(song => song.uri.includes(currentTrackId))
   }, [currentTrackId, songs])
+
+  // Handle voice mode toggle - connect/disconnect WebSocket
+  useEffect(() => {
+    if (voiceMode) {
+      // Connect WebSocket (models will load, we'll get "ready" event)
+      connect()
+      setOrbState('thinking') // Show loading state while models load
+    } else {
+      // Disconnect WebSocket
+      disconnect()
+      setOrbState('idle')
+    }
+  }, [voiceMode, connect, disconnect])
+
+  // Raw PCM audio capture (16kHz, 16-bit mono)
+  const { startCapture, stopCapture } = useAudioCapture({
+    onAudioChunk: (chunk) => {
+      if (isConnected) {
+        sendAudio(chunk)
+      }
+    },
+    onError: (error) => {
+      setError(`Microphone error: ${error}`)
+      setVoiceMode(false)
+    }
+  })
+
+  // Start audio capture ONLY after backend is ready
+  useEffect(() => {
+    if (voiceReady) {
+      startCapture()
+      console.log('🎤 Voice mode active - raw PCM streaming')
+    } else {
+      stopCapture()
+    }
+  }, [voiceReady, startCapture, stopCapture])
 
   // Handle form submission
   const handleSubmit = async () => {
@@ -169,6 +282,21 @@ function App() {
             {/* Spotify Auth */}
             <SpotifyAuth onAuthChange={setIsSpotifyConnected} />
 
+            {/* Voice Mode Toggle */}
+            <button
+              onClick={() => setVoiceMode(!voiceMode)}
+              className={`px-4 py-2.5 rounded-xl transition-all duration-300 font-medium
+                         ${voiceMode
+                  ? 'bg-purple-600 text-white hover:bg-purple-500'
+                  : theme === 'dark'
+                    ? 'bg-white/[0.05] border border-white/[0.08] hover:bg-white/[0.1] text-zinc-300'
+                    : 'bg-black/[0.05] border border-black/[0.08] hover:bg-black/[0.1] text-zinc-700'
+                }`}
+              aria-label="Toggle voice mode"
+            >
+              {voiceMode ? '🎤 Voice Mode' : '✋ Click Mode'}
+            </button>
+
             {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
@@ -219,10 +347,17 @@ function App() {
 
         <div className="max-w-4xl mx-auto px-4">
           {/* Section heading */}
-          <h2 className={`text-2xl font-bold mb-6 text-center
+          <h2 className={`text-2xl font-bold mb-2 text-center
                          ${theme === 'dark' ? 'text-white' : 'text-zinc-900'}`}>
             What's your vibe today?
           </h2>
+
+          {/* Mode indicator */}
+          <p className={`text-center mb-6 ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}`}>
+            {voiceMode
+              ? '🎤 Voice Mode Active - Say "Hey Groovi" to start'
+              : '✋ Click the orb to record'}
+          </p>
 
           {/* AI Orb - Centered between heading and input */}
           <div className="flex justify-center mb-6">

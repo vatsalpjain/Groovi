@@ -8,6 +8,9 @@ import type { RecommendationResponse, TranscriptionResponse } from '../types';
 // API base URL from environment variable
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000';
 
+// WebSocket URL for voice connection
+export const WS_URL = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:5000/ws/voice';
+
 // Request timeout (10 seconds)
 const REQUEST_TIMEOUT = 10000;
 
