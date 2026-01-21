@@ -1,9 +1,10 @@
+# 🎵 Groovi - Real-Time Voice AI Music Assistant
 
-# 🎵 Groovi - AI-Powered Mood-Based Music Recommender
 <div align="center">
-**Describe your mood with text or voice, and discover the perfect soundtrack powered by AI**
 
-[Features](#-features) • [Demo](#-demo) • [Installation](#-installation) • [Usage](#-usage) 
+**Voice-first AI music assistant with wake word detection, real-time speech processing, and AI agent-based recommendations via Model Context Protocol (MCP)**
+
+[Voice AI](#️-voice-ai-architecture) • [MCP Integration](#-mcp-integration) • [AI Agent](#-ai-agent-workflow) • [Installation](#-installation)
 
 </div>
 
@@ -11,556 +12,273 @@
 
 ## 📖 Table of Contents
 
-- [About](#-about-the-project)
-- [Features](#-features)
+- [About](#-about)
+- [🎙️ Voice AI Architecture](#️-voice-ai-architecture) ⭐
+- [🔌 MCP Integration](#-mcp-integration)
+- [🤖 AI Agent Workflow](#-ai-agent-workflow)
 - [Tech Stack](#-tech-stack)
-- [Architecture](#-architecture)
-- [Prerequisites](#-prerequisites)
 - [Installation](#-installation)
 - [Configuration](#-configuration)
-- [Running the Application](#-running-the-application)
-- [API Documentation](#-api-documentation)
+- [Running the App](#-running-the-app)
 - [Project Structure](#-project-structure)
 - [Troubleshooting](#-troubleshooting)
 
 ---
 
-## 🎯 About The Project
+## 🎯 About
 
-**Groovi** is an intelligent music recommendation system that analyzes your mood through text or voice input and curates a personalized playlist of 5 songs that perfectly match your emotional state. 
+**Groovi** is a **real-time voice AI music assistant** demonstrating advanced voice processing, Model Context Protocol (MCP) integration, and AI agent-based music discovery.
+
+### Key Features
+
+1. **🎤 Full Voice-to-Voice Pipeline** - Wake word → STT → LLM → TTS (real-time, mostly local)
+2. **🔌 MCP-Based Architecture** - Spotify integration via Model Context Protocol
+3. **🤖 AI Agent with Function Calling** - Iterative music discovery using Groq LLM
+4. **⚡ WebSocket Real-Time Processing** - Streaming audio processing
+5. **🎯 Custom Wake Word** - "Hey Groovi" detection
 
 ### How It Works
 
-1. **Input Your Mood** - Type, speak, or upload audio describing how you feel
-2. **AI Analysis** - Advanced AI (Groq LLM) analyzes sentiment and generates insights
-3. **Smart Recommendations** - Get 5 perfectly matched songs from Spotify
-4. **Enjoy** - Listen directly on Spotify with one click
+1. **Say "Hey Groovi"** - Custom wake word activates the assistant
+2. **Speak Your Request** - VAD detects speech, Faster-Whisper transcribes
+3. **AI Agent Explores** - Function-calling agent searches Spotify via MCP
+4. **Groovi Responds** - Local Piper TTS speaks recommendations
 
 ---
 
-## ✨ Features
+## 🎙️ Voice AI Architecture
 
-### 🧠 **Intelligent Mood Analysis**
-- **AI-Powered Sentiment Analysis** using Groq LLM (Llama 4 Maverick)
-- **Fallback VADER Analysis** for reliable offline processing
-- **100-word AI-generated mood summaries** that celebrate and uplift your emotions
+Real-time voice-to-voice pipeline running via WebSocket.
 
-### 🎤 **Multi-Modal Input**
-- ✍️ **Text Input** - Type your mood in natural language
-- 🎙️ **Voice Recording** - Record your mood directly in the browser
-- 📁 **Audio Upload** - Upload audio files (MP3, WAV, WebM, OGG, M4A)
-- 🗣️ **Speech-to-Text** - Local Faster-Whisper for accurate transcription (no API key needed)
+### State Machine
 
-### 🎵 **Smart Music Recommendations**
-- **5 Curated Songs** per mood analysis
-- **Spotify Integration** - Direct links to play on Spotify
-- **Album Artwork** - Beautiful visual presentation
-- **Fallback System** - Always returns recommendations even if APIs fail
+```
+WAKE_WORD (Idle) → LISTENING (VAD + STT) → PROCESSING (LLM + Agent) → SPEAKING (TTS) → Loop
+```
 
-### 🎨 **Modern UI/UX**
-- **Dark Mode Design** with glassmorphism effects
-- **Responsive Layout** - Works on desktop, tablet, and mobile
-- **Smooth Animations** - Engaging user experience
-- **Real-time Feedback** - Loading states and error handling
+### Components
+
+| Component | Technology | Purpose | Latency |
+|-----------|-----------|---------|---------|
+| **Wake Word** | openWakeWord + Custom Model | "Hey Groovi" detection | < 100ms |
+| **VAD** | Silero VAD | Speech/silence detection | 30ms |
+| **STT** | Faster-Whisper (base) | Speech-to-text | ~500ms |
+| **LLM** | Groq (Llama 3.1 8B) | Conversation + reasoning | ~300ms |
+| **TTS** | Piper TTS (ONNX) | Text-to-speech | ~200ms |
+
+**Total Latency**: ~1.1s | **Memory**: ~300MB
+
+### WebSocket Protocol (`/ws/voice`)
+
+**Client → Server**: Binary PCM audio chunks (16kHz, 16-bit mono)
+
+**Server → Client Events**:
+```json
+{"event": "ready"}
+{"event": "wake_word_detected"}
+{"event": "listening"}
+{"event": "speech_detected", "transcript": "..."}
+{"event": "processing"}
+{"event": "speaking", "text": "..."}
+{"event": "audio", "data": <bytes>}  // TTS audio
+{"event": "music_results", "tracks": [...]}
+```
+
+---
+
+## 🔌 MCP Integration
+
+Uses **Model Context Protocol** for Spotify integration - an open standard for AI-to-tool communication.
+
+### Architecture
+
+```
+Backend AI Agent (Groq LLM)
+    ↓ Function Calls
+MCP Client (stdio)
+    ↓ JSON-RPC
+MCP Server (spotify_mcp/)
+    ↓ Tool Execution
+Spotify Web API
+```
+
+### MCP Server Tools
+
+10 Spotify tools exposed via MCP:
+- `search_tracks`, `search_artists`, `search_playlists`
+- `get_artist_top_tracks`, `get_related_artists`
+- `browse_new_releases`, `browse_genres`
+- `create_playlist`, and more
+
+**Transport**: Stdio (Standard I/O)  
+**Protocol**: JSON-RPC 2.0  
+**Connection**: Per-request spawning
+
+---
+
+## 🤖 AI Agent Workflow
+
+Autonomous AI agent using function calling to explore Spotify and curate recommendations.
+
+**Model**: Llama 3.1 8B (via Groq)  
+**Max Iterations**: 5  
+**Strategy**: ReAct (Reasoning + Acting)
+
+### Agent Loop
+
+```python
+while iteration < 5:
+    # 1. LLM decides which tool to call
+    response = groq_client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=conversation_history,
+        tools=SPOTIFY_TOOLS
+    )
+    
+    # 2. Execute tool via MCP
+    result = await mcp_client.call_tool(tool_name, args)
+    
+    # 3. Agent refines or finishes
+    if agent_done:
+        break
+```
+
+**Example**: User says "energetic workout music"
+- Iteration 1: Search tracks → 15 results
+- Iteration 2: Explore playlists → Extract top tracks
+- Iteration 3: Browse genres → Diversify
+- Result: 5 curated tracks with reasoning
 
 ---
 
 ## 🛠️ Tech Stack
 
-### **Backend**
-- **[FastAPI](https://fastapi.tiangolo.com/)** - Modern Python web framework
-- **[Spotipy](https://spotipy.readthedocs.io/)** - Spotify API wrapper
-- **[Groq](https://groq.com/)** - AI/LLM for mood analysis
-- **[Faster-Whisper](https://github.com/guillaumekln/faster-whisper)** - Local speech-to-text
-- **[Piper TTS](https://github.com/rhasspy/piper)** - Local text-to-speech
-- **[VADER Sentiment](https://github.com/cjhutto/vaderSentiment)** - Fallback sentiment analyzer
-- **[Pydantic](https://pydantic.dev/)** - Data validation
-- **[Uvicorn](https://www.uvicorn.org/)** - ASGI server
+### Voice AI
+- **Faster-Whisper** - Local STT (CTranslate2 optimized)
+- **Piper TTS** - Local TTS (ONNX Runtime)
+- **openWakeWord** - Custom wake word detection
+- **Silero VAD** - Voice activity detection
+- **PyTorch + ONNX** - ML inference engines
 
-### **Frontend**
-- **[React 18](https://react.dev/)** - UI library
-- **[TypeScript](https://www.typescriptlang.org/)** - Type-safe JavaScript
-- **[Vite](https://vitejs.dev/)** - Build tool and dev server
-- **[Tailwind CSS v4](https://tailwindcss.com/)** - Utility-first CSS framework
-- **Dark/Light Mode** - System-aware theme toggle
+### Backend
+- **FastAPI** - Async web framework
+- **Groq** - LLM inference (Llama 3.1 8B)
+- **MCP SDK** - Model Context Protocol
+- **Spotipy** - Spotify API wrapper
+- **Python 3.13**
 
-### **APIs & Services**
-- **[Spotify Web API](https://developer.spotify.com/documentation/web-api)** - Music data and playback
-- **[Groq API](https://console.groq.com/)** - AI-powered mood analysis
-
----
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                         Frontend (React)                     │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────┐   │
-│  │ Text Input  │  │ Voice Recorder│  │  Audio Uploader │   │
-│  └─────────────┘  └──────────────┘  └─────────────────┘   │
-│                           │                                  │
-│                           ▼                                  │
-│                  ┌─────────────────┐                        │
-│                  │   App.tsx       │                        │
-│                  └─────────────────┘                        │
-└────────────────────────│───────────────────────────────────┘
-                         │
-                         │ HTTP Requests
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      Backend (FastAPI)                       │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │                     main.py (Routes)                  │  │
-│  │  ┌─────────────────┐      ┌──────────────────────┐  │  │
-│  │  │ /transcribe     │      │    /recommend        │  │  │
-│  │  └─────────────────┘      └──────────────────────┘  │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                           │                                  │
-│                           ▼                                  │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │                Services Layer                         │  │
-│  │  ┌─────────────────┐  ┌──────────────────────────┐  │  │
-│  │  │ AudioTranscriber│  │    MoodAnalyzer          │  │  │
-│  │  │ (Faster-Whisper)│  │  (Groq AI + VADER)       │  │  │
-│  │  └─────────────────┘  └──────────────────────────┘  │  │
-│  │  ┌─────────────────┐  ┌──────────────────────────┐  │  │
-│  │  │SongRecommender  │  │   SpotifyClient          │  │  │
-│  │  │  (Multi-strategy)│  │   (Spotipy)              │  │  │
-│  │  └─────────────────┘  └──────────────────────────┘  │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                           │                                  │
-│                           ▼                                  │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │              Data & Config Layer                      │  │
-│  │  ┌─────────────────┐  ┌──────────────────────────┐  │  │
-│  │  │ mood_libraries  │  │      settings            │  │  │
-│  │  │  (Fallback data)│  │   (Environment vars)     │  │  │
-│  │  └─────────────────┘  └──────────────────────────┘  │  │
-│  └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    External APIs                             │
-│  ┌──────────────┐  ┌────────────┐                           │
-│  │ Spotify API  │  │  Groq API  │                           │
-│  └──────────────┘  └────────────┘                           │
-└─────────────────────────────────────────────────────────────┘
-```
+### Frontend
+- **React 18 + TypeScript**
+- **Vite** - Build tool
+- **Tailwind CSS v4**
+- **WebSocket API**
 
 ---
 
 ## 📋 Prerequisites
 
-Before you begin, ensure you have the following installed:
+**Required Software**:
+- Python 3.13+
+- uv (Python package manager)
+- Node.js 18+
+- npm 9+
 
-### **Required Software**
-
-| Software | Version | Download Link |
-|----------|---------|---------------|
-| **Python** | 3.8 or higher | [python.org](https://www.python.org/downloads/) |
-| **Node.js** | 16.0 or higher | [nodejs.org](https://nodejs.org/) |
-| **npm** | 8.0 or higher | Comes with Node.js |
-| **Git** | Latest | [git-scm.com](https://git-scm.com/) |
-
-### **API Keys Required**
-
-You'll need to sign up for free API keys from:
-
-1. **[Spotify for Developers](https://developer.spotify.com/dashboard)**
-   - Create an app to get `Client ID` and `Client Secret`
-   - Free tier: Unlimited requests
-
-2. **[Groq Console](https://console.groq.com/)**
-   - Sign up for free API key
-   - Free tier: Generous rate limits
+**API Keys**:
+1. [Spotify Developer](https://developer.spotify.com/dashboard) - Client ID & Secret
+2. [Groq Console](https://console.groq.com/) - API Key (free tier available)
 
 ---
 
 ## 🚀 Installation
 
-### **Step 1: Clone the Repository**
+### Backend Setup
 
-```bash
-# Clone the repo
-git clone https://github.com/yourusername/groovi.git
-
-# Navigate to project directory
-cd groovi
-```
-
-### **Step 2: Backend Setup**
-
-#### **2.1 Navigate to backend folder**
 ```bash
 cd backend
+
+# Install uv (if not installed)
+# Windows: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+# macOS/Linux: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install dependencies
+uv sync
+
+# Verify
+uv run python -c "import faster_whisper, piper; print('✅ Ready')"
 ```
 
-#### **2.2 Create virtual environment**
+### MCP Server Setup
 
-**Windows (Command Prompt):**
 ```bash
-python -m venv venv
-venv\Scripts\activate
+cd spotify_mcp
+uv sync
 ```
 
-**Windows (PowerShell):**
+### Frontend Setup
+
 ```bash
-python -m venv venv
-venv\Scripts\Activate.ps1
-```
-
-**macOS/Linux:**
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-You should see `(venv)` prefix in your terminal.
-
-#### **2.3 Install Python dependencies**
-```bash
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-**Expected packages installed:**
-- fastapi
-- uvicorn[standard]
-- spotipy
-- groq
-- faster-whisper
-- piper-tts
-- vaderSentiment
-- pydantic
-- python-dotenv
-- requests
-
-#### **2.4 Verify installation**
-```bash
-pip list
-```
-
-### **Step 3: Frontend Setup**
-
-#### **3.1 Open new terminal and navigate to frontend**
-```bash
-cd ../frontend
-```
-
-#### **3.2 Install Node.js dependencies**
-```bash
+cd frontend
 npm install
-```
-
-**Expected output:**
-```
-✓ Dependencies installed successfully
 ```
 
 ---
 
 ## ⚙️ Configuration
 
-### **Backend Configuration**
-
-#### **Create `.env` file in `backend/` folder:**
-
-```bash
-# Navigate to backend folder
-cd backend
-
-# Create .env file
-# Windows: use notepad
-notepad .env
-
-# macOS/Linux: use nano or vim
-nano .env
-```
-
-#### **Add your API keys to `.env`:**
+Create `backend/.env`:
 
 ```env
-# Spotify API Credentials (REQUIRED)
-# Get from: https://developer.spotify.com/dashboard
-SPOTIPY_CLIENT_ID=your_spotify_client_id_here
-SPOTIPY_CLIENT_SECRET=your_spotify_client_secret_here
+# Spotify (REQUIRED)
+SPOTIPY_CLIENT_ID=your_client_id
+SPOTIPY_CLIENT_SECRET=your_client_secret
+SPOTIPY_REDIRECT_URI=http://localhost:5000/callback
 
-# Groq API Key (REQUIRED for AI mood analysis)
-# Get from: https://console.groq.com/keys
-GROQ_API_KEY=your_groq_api_key_here
+# Groq (REQUIRED)
+GROQ_API_KEY=your_groq_api_key
 
-# Optional: Local audio model settings
-# WHISPER_MODEL_SIZE=base  # Options: tiny, base, small, medium
-# PIPER_VOICE=en_US-lessac-medium
+# Optional
+# WHISPER_MODEL_SIZE=base
+# WAKE_WORD_THRESHOLD=0.5
 ```
 
-#### **How to get API keys:**
+**Get Spotify Keys**:
+1. Go to [Spotify Dashboard](https://developer.spotify.com/dashboard)
+2. Create app, add redirect URI: `http://localhost:5000/callback`
+3. Copy Client ID & Secret
 
-<details>
-<summary><b>🎵 Spotify API Setup (Click to expand)</b></summary>
-
-1. Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
-2. Log in with your Spotify account
-3. Click **"Create app"**
-4. Fill in:
-   - **App name:** `Groovi`
-   - **App description:** `Mood-based music recommender`
-   - **Redirect URI:** `http://localhost:8000/callback`
-5. Check the box for **"Web API"**
-6. Click **"Save"**
-7. Click **"Settings"**
-8. Copy your **Client ID** and **Client Secret**
-9. Paste them into your `.env` file
-
-</details>
-
-<details>
-<summary><b>🤖 Groq API Setup (Click to expand)</b></summary>
-
+**Get Groq Key**:
 1. Go to [Groq Console](https://console.groq.com/)
-2. Sign up or log in
-3. Navigate to **API Keys** section
-4. Click **"Create API Key"**
-5. Give it a name: `Groovi`
-6. Copy the API key (you won't see it again!)
-7. Paste it into your `.env` file
-
-</details>
-
-</details>
-
-### **Frontend Configuration**
-
-No configuration needed! The frontend is pre-configured to connect to `http://127.0.0.1:8000`.
-
-If you need to change the backend URL, edit `frontend/.env`:
-```env
-VITE_API_URL=http://127.0.0.1:8000
-```
+2. Create API key
+3. Copy key (free tier: 30 requests/min)
 
 ---
 
-## 🏃 Running the Application
+## 🏃 Running the App
 
-### **Option 1: Manual Start (Recommended for Development)**
-
-#### **Terminal 1 - Start Backend:**
+**Terminal 1 - Backend**:
 ```bash
 cd backend
-
-# Activate virtual environment
-# Windows Command Prompt:
-venv\Scripts\activate
-# Windows PowerShell:
-venv\Scripts\Activate.ps1
-# macOS/Linux:
-source venv/bin/activate
-
-# Start server
-python main.py
+uv run python main.py
 ```
 
-**Expected output:**
+**Expected output**:
 ```
 🎵 Starting Groovi Backend Server...
-📡 Server: http://localhost:8000
-📚 API Docs: http://localhost:8000/docs
-✅ Spotify client initialized
-✅ Groq AI initialized
-✅ Local Whisper transcriber initialized
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process
+📡 Server: http://localhost:5000
+🎤 Voice AI models ready
 ```
 
-#### **Terminal 2 - Start Frontend:**
+**Terminal 2 - Frontend**:
 ```bash
 cd frontend
-
-# Start dev server
 npm run dev
 ```
 
-**Expected output:**
-```
-  VITE v5.0.0  ready in 500 ms
+**Access**:
+- 🎯 App: http://localhost:5173
+- 🔧 API Docs: http://localhost:5000/docs
 
-  ➜  Local:   http://localhost:5173/
-  ➜  Network: use --host to expose
-  ➜  press h + enter to show help
-```
-
-### **Option 2: Quick Start Scripts**
-
-#### **Windows - Create `start.bat` in project root:**
-```batch
-@echo off
-echo Starting Groovi Backend and Frontend...
-start cmd /k "cd backend && venv\Scripts\activate && python start_server.py"
-timeout /t 3
-start cmd /k "cd frontend_new && npm run dev"
-```
-
-**Run:** Double-click `start.bat` or run `start.bat` in terminal
-
-#### **macOS/Linux - Create `start.sh` in project root:**
-```bash
-#!/bin/bash
-echo "Starting Groovi Backend and Frontend..."
-cd backend && source venv/bin/activate && python start_server.py &
-sleep 3
-cd ../frontend_new && npm run dev
-```
-
-**Run:** 
-```bash
-chmod +x start.sh
-./start.sh
-```
-
----
-
-## 🌐 Access the Application
-
-1. **Frontend UI**: Open browser to [http://localhost:5173](http://localhost:5173)
-2. **Backend API**: [http://localhost:8000](http://localhost:8000)
-3. **API Documentation (Swagger UI)**: [http://localhost:8000/docs](http://localhost:8000/docs)
-4. **Alternative API Docs (ReDoc)**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
-
----
-
-## 📚 API Documentation
-
-### **Base URL**
-```
-http://localhost:8000
-```
-
-### **Endpoints**
-
-#### **1. Health Check**
-```http
-GET /
-```
-
-**Response:**
-```json
-{
-  "message": "Groovi API is running!",
-  "version": "1.0.0",
-  "status": "healthy"
-}
-```
-
-**cURL Example:**
-```bash
-curl http://localhost:8000/
-```
-
----
-
-#### **2. Transcribe Audio**
-```http
-POST /transcribe
-```
-
-**Description:** Transcribe audio file to text using Deepgram AI
-
-**Request:**
-- **Content-Type:** `multipart/form-data`
-- **Body:** Audio file (MP3, WAV, WebM, OGG, M4A)
-- **Max size:** 10MB
-
-**Response:**
-```json
-{
-  "transcript": "I'm feeling really happy and energetic today!",
-  "filename": "recording.webm",
-  "duration_estimate": 5.2
-}
-```
-
-**cURL Example:**
-```bash
-curl -X POST "http://localhost:8000/transcribe" \
-  -F "audio=@recording.mp3"
-```
-
-**Python Example:**
-```python
-import requests
-
-with open("recording.mp3", "rb") as audio_file:
-    files = {"audio": audio_file}
-    response = requests.post("http://localhost:8000/transcribe", files=files)
-    print(response.json())
-```
-
----
-
-#### **3. Get Song Recommendations**
-```http
-POST /recommend
-```
-
-**Description:** Analyze mood from text and get 5 song recommendations
-
-**Request:**
-```json
-{
-  "text": "I'm feeling really happy and energetic today!"
-}
-```
-
-**Response:**
-```json
-{
-  "mood_analysis": {
-    "category": "Very Positive",
-    "description": "You're feeling fantastic and energetic!",
-    "summary": "What an incredible energy you're radiating! Your positivity is infectious and it's the perfect time to celebrate with music that matches your soaring spirits. Whether you're dancing or conquering the world, these songs will amplify your amazing mood and keep those good vibes flowing!",
-    "score": 0.85,
-    "intensity": "moderate"
-  },
-  "songs": [
-    {
-      "name": "Happy",
-      "artist": "Pharrell Williams",
-      "uri": "spotify:track:60nZcImufyMA1MKQY3dcCH",
-      "album_art": "https://i.scdn.co/image/ab67616d0000b273...",
-      "external_url": "https://open.spotify.com/track/60nZcImufyMA1MKQY3dcCH"
-    },
-    // ... 4 more songs
-  ]
-}
-```
-
-**cURL Example:**
-```bash
-curl -X POST "http://localhost:8000/recommend" \
-  -H "Content-Type: application/json" \
-  -d '{"text":"I am feeling great today!"}'
-```
-
-**Python Example:**
-```python
-import requests
-
-data = {"text": "I'm feeling great today!"}
-response = requests.post("http://localhost:8000/recommend", json=data)
-print(response.json())
-```
-
-**JavaScript Example:**
-```javascript
-fetch('http://localhost:8000/recommend', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ text: "I'm feeling great today!" })
-})
-  .then(res => res.json())
-  .then(data => console.log(data));
-```
+**First Run**: Models download (~300MB, 1-2 min). Cached afterwards.
 
 ---
 
@@ -568,225 +286,91 @@ fetch('http://localhost:8000/recommend', {
 
 ```
 groovi/
-├── backend/                    # Backend application (Modular FastAPI)
-│   ├── config/
-│   │   └── settings.py            # Environment variables & config
-│   ├── models/
-│   │   └── schemas.py             # Pydantic data models
+├── backend/
+│   ├── voice_ai/              # 🎙️ Voice AI Pipeline
+│   │   ├── voice_assistant.py  # State machine orchestrator
+│   │   ├── wake_word_service.py
+│   │   ├── vad_service.py
+│   │   ├── streaming_STT.py
+│   │   └── streaming_TTS.py
 │   ├── services/
-│   │   ├── audio_transcriber.py   # Local Faster-Whisper STT
-│   │   ├── local_audio_service.py # STT + TTS service
-│   │   ├── mood_analyzer.py       # Groq AI + VADER sentiment
-│   │   ├── song_recommender.py    # Multi-strategy recommendations
-│   │   └── spotify_client.py      # Spotify API wrapper
-│   ├── data/
-│   │   └── mood_libraries.py      # Curated fallback songs by mood
-│   ├── tests/
-│   │   ├── test_spotify.py        # Spotify connection test
-│   │   └── test_local_audio.py    # STT/TTS tests
-│   ├── main.py                    # FastAPI app & server entry
-│   ├── requirements.txt           # Python dependencies
-│   ├── .env                       # API keys (create this)
-│   └── .gitignore                 # Git ignore rules
+│   │   ├── mcp_client.py      # MCP client
+│   │   ├── music_agent.py     # AI agent
+│   │   ├── mood_analyzer.py
+│   │   └── spotify_auth.py
+│   ├── models/
+│   │   ├── Hey_Groovi.tflite  # Wake word model
+│   │   └── piper/             # TTS models
+│   ├── main.py                # FastAPI app
+│   └── pyproject.toml
 │
-├── frontend/                        # Frontend application (React + TypeScript + Vite + Tailwind)
+├── spotify_mcp/               # 🔌 MCP Server
+│   ├── server.py              # MCP server
+│   ├── spotify_api.py
+│   └── pyproject.toml
+│
+├── frontend/                  # 🎨 Frontend
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── AudioRecorder.tsx    # Voice recording component
-│   │   │   ├── TTSButton.tsx        # Text-to-speech button
-│   │   │   ├── SpotifyEmbed.tsx     # Embedded Spotify player
-│   │   │   └── SongList.tsx         # Glassmorphism song list
 │   │   ├── hooks/
-│   │   │   └── useTheme.ts          # Dark/light mode hook
-│   │   ├── services/
-│   │   │   └── api.ts               # API client with error handling
-│   │   ├── App.tsx                  # Main React component
-│   │   ├── main.tsx                 # React entry point
-│   │   ├── index.css                # Tailwind import + CSS vars
-│   │   └── types.ts                 # TypeScript interfaces
-│   ├── public/                      # Static assets
-│   ├── index.html                   # HTML template
-│   ├── package.json                 # Node.js dependencies
-│   ├── tsconfig.json                # TypeScript config
-│   ├── vite.config.ts               # Vite + Tailwind config
-│   ├── .env                         # Frontend environment vars
-│   └── .gitignore                   # Git ignore rules
+│   │   └── services/
+│   └── package.json
 │
-└── README.md                       # This file
+└── README.md
 ```
 
 ---
 
 ## 🐛 Troubleshooting
 
-### **Common Issues**
+**WebSocket connection failed**:
+- Ensure backend running: `cd backend && uv run python main.py`
+- Check port 5000 available
 
-<details>
-<summary><b>❌ "Failed to fetch" Error</b></summary>
+**Wake word not detecting**:
+- Check model exists: `backend/models/Hey_Groov*.onnx`
+- Speak clearly in quiet environment
+- Lower threshold in `.env`: `WAKE_WORD_THRESHOLD=0.3`
 
-**Cause:** Backend server is not running.
+**Spotify credentials error**:
+- Verify `.env` exists in `backend/`
+- No extra spaces in API keys
+- Restart backend after changes
 
-**Solution:**
-1. Ensure backend is running: `python main.py`
-2. Check backend is accessible: Open [http://localhost:8000](http://localhost:8000)
-3. Verify no firewall blocking port 8000
-4. Check backend terminal for errors
-
-</details>
-
-<details>
-<summary><b>❌ "Spotify credentials missing" Error</b></summary>
-
-**Cause:** `.env` file missing or incorrect.
-
-**Solution:**
-1. Verify `.env` file exists in `backend/` folder
-2. Check API keys are correct (no extra spaces)
-3. Restart backend server after updating `.env`
-4. Test connection: `python test_spotify.py`
-
-</details>
-
-<details>
-<summary><b>❌ "Deepgram API key not configured" Error</b></summary>
-
-**Cause:** Deepgram API key missing (optional feature).
-
-**Solution:**
-1. Add `DEEPGRAM_API_KEY` to `.env` file
-2. Or disable audio features and use text input only
-3. Text input will work fine without Deepgram
-
-</details>
-
-<details>
-<summary><b>❌ "Module not found" Error</b></summary>
-
-**Cause:** Python dependencies not installed or wrong virtual environment.
-
-**Solution:**
+**Module not found**:
 ```bash
 cd backend
-# Activate venv first!
-pip install -r requirements.txt
+uv sync
 ```
 
-</details>
-
-<details>
-<summary><b>❌ "Port 8000 already in use" Error</b></summary>
-
-**Cause:** Another application using port 8000.
-
-**Solution:**
-
-**Option 1 - Kill existing process:**
+**MCP server spawn failed**:
 ```bash
-# Windows:
-netstat -ano | findstr :8000
-taskkill /PID <PID> /F
-
-# macOS/Linux:
-lsof -ti:8000 | xargs kill -9
+cd spotify_mcp
+uv sync
 ```
 
-**Option 2 - Change port:**
-Edit `backend/start_server.py`:
-```python
-uvicorn.run(
-    "main:app",
-    host="0.0.0.0",
-    port=8001,  # Changed from 8000
-    reload=True
-)
-```
-
-Then update frontend URLs to use port 8001.
-
-</details>
-
-<details>
-<summary><b>❌ Microphone Access Denied</b></summary>
-
-**Cause:** Browser blocking microphone access.
-
-**Solution:**
-1. Click the lock icon in browser address bar
-2. Allow microphone permissions for the site
-3. Refresh the page
-4. Try recording again
-
-**Chrome:** Settings → Privacy and security → Site Settings → Microphone
-**Firefox:** Preferences → Privacy & Security → Permissions → Microphone
-
-</details>
-
-<details>
-<summary><b>❌ CORS Error</b></summary>
-
-**Cause:** Frontend URL not in allowed origins.
-
-**Solution:**
-Edit `backend/config/settings.py`:
-```python
-ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://your-custom-url:port"  # Add your URL here
-]
-```
-
-Restart backend after changes.
-
-</details>
-
-<details>
-<summary><b>❌ "No songs found" Error</b></summary>
-
-**Cause:** All recommendation strategies failed.
-
-**Solution:**
-1. Check internet connection
-2. Verify Spotify API credentials
-3. Check backend logs for specific errors
-4. Try simpler mood text (e.g., "happy" instead of complex sentences)
-
-</details>
-
-### **Testing Backend**
-
+**Test backend**:
 ```bash
-# Test Spotify connection
 cd backend
-python test_spotify.py
-
-# Expected output:
-# 🎵 Testing Spotify API...
-# ✅ Spotify client initialized
-# ✅ Connected! Test: Happy by Pharrell Williams
-
-# Test API health
-curl http://localhost:8000/
-
-# Test text recommendation
-curl -X POST "http://localhost:8000/recommend" \
-  -H "Content-Type: application/json" \
-  -d '{"text":"I am happy"}'
-
-# Test audio transcription (if you have an audio file)
-curl -X POST "http://localhost:8000/transcribe" \
-  -F "audio=@test.mp3"
+uv run python tests/test_spotify.py
+uv run python tests/test_local_audio.py
 ```
 
+---
 
-## 🎓 Learn More
+## 🎓 Resources
+
+- [Faster-Whisper](https://github.com/guillaumekln/faster-whisper) - Optimized Whisper
+- [Piper TTS](https://github.com/rhasspy/piper) - Local text-to-speech
+- [MCP Specification](https://spec.modelcontextprotocol.io/) - Model Context Protocol
+- [Groq Docs](https://console.groq.com/docs) - LLM inference
+
+---
 
 <div align="center">
 
-## 💖 **Made with ❤️ by the Groovi Team**
+**Built with ❤️ using Voice AI + MCP**
 
-**Happy vibing with Groovi! 🎵✨**
+**Groovi 🎵✨**
 
----
 </div>

@@ -156,7 +156,7 @@ AGENT_TOOLS = [
 # System prompt for the agent
 SYSTEM_PROMPT = """You are a music recommendation AI with access to Spotify tools.
 
-Your goal: Find 5 PERFECT songs based on what the user describes.
+Your goal: Find 10 PERFECT songs based on what the user describes.
 
 ## STRATEGY:
 1. ARTIST mentioned → Use search_artist, then get_artist_top_tracks
@@ -173,7 +173,7 @@ Your goal: Find 5 PERFECT songs based on what the user describes.
 {
     "tracks": [
         {"name": "Song Name", "artist": "Artist", "uri": "spotify:track:...", "reason": "Why it fits"},
-        ... (exactly 5 tracks)
+        ... (exactly 10 tracks)
     ],
     "mood": "detected mood",
     "summary": "Brief curation explanation"
@@ -258,11 +258,11 @@ class MusicRecommendationAgent:
                         "role": "user",
                         "content": f"""You MUST now provide your final recommendation. 
                         
-Pick the 5 BEST tracks from what you've found and return ONLY this JSON:
+Pick the 10 BEST tracks from what you've found and return ONLY this JSON:
 {{
     "tracks": [
         {{"name": "...", "artist": "...", "uri": "spotify:track:...", "reason": "Why this fits"}},
-        ... (exactly 5 tracks)
+        ... (exactly 10 tracks)
     ],
     "mood": "detected mood/vibe",
     "summary": "Brief explanation of your curation"
@@ -426,7 +426,7 @@ Here are some tracks you found: {json.dumps(all_tracks[:20])}"""
                 })
         
         return {
-            "tracks": unique_tracks[:5],
+            "tracks": unique_tracks[:10],
             "mood": "curated",
             "summary": "Curated from AI agent exploration Just For Your mood",
             "thought_process": thought_process,

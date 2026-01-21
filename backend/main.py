@@ -146,17 +146,31 @@ async def voice_websocket(websocket: WebSocket):
     
     try:
         while True:
-            # Receive audio bytes from client
-            audio_chunk = await websocket.receive_bytes()
+            # Receive data from client (can be binary audio or JSON text)
+            message = await websocket.receive()
             
-            # Process through voice assistant state machine
-            async for event in voice_assistant.process_audio(audio_chunk):
-                if event.get("event") == "audio":
-                    # Binary audio data - send as bytes
-                    await websocket.send_bytes(event["data"])
-                else:
-                    # JSON event - send as JSON
-                    await websocket.send_json(event)
+            if "bytes" in message:
+                # Binary data = audio chunk
+                audio_chunk = message["bytes"]
+                # Process through voice assistant state machine
+                async for event in voice_assistant.process_audio(audio_chunk):
+                    if event.get("event") == "audio":
+                        # Binary audio data - send as bytes
+                        await websocket.send_bytes(event["data"])
+                    else:
+                        # JSON event - send as JSON
+                        await websocket.send_json(event)
+            
+            elif "text" in message:
+                # JSON message from frontend (e.g., tts_complete)
+                import json
+                try:
+                    data = json.loads(message["text"])
+                    logger.info(f"📨 Received message: {data.get('event')}")
+                    async for event in voice_assistant.handle_message(data):
+                        await websocket.send_json(event)
+                except json.JSONDecodeError:
+                    logger.error(f"Invalid JSON message: {message['text']}")
             
     except WebSocketDisconnect:
         logger.info("🔌 WebSocket disconnected")

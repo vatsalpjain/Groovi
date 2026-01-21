@@ -39,7 +39,8 @@ function App() {
   const [agentIterations, setAgentIterations] = useState(0)
 
   // Voice mode toggle
-  const [voiceMode, setVoiceMode] = useState(false)
+  // voiceMode is different from voiceReady. voiceMode is when the user clicks the voice button to enable voice mode. voiceReady is when the backend models are loaded and ready to use.
+  const [voiceMode, setVoiceMode] = useState(false) // True when backend models are loaded
   const [voiceReady, setVoiceReady] = useState(false) // True when backend models are loaded
 
   // AI Orb state

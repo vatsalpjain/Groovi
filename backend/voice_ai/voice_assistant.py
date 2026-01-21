@@ -9,6 +9,7 @@ State machine:
 """
 
 from typing import Literal, AsyncGenerator
+import asyncio
 import logging
 import time
 
@@ -41,8 +42,22 @@ Example responses:
 - "Nice choice! I love that genre too."
 """
     
+    # Filler prompt for music search latency
+    FILLER_SYSTEM_PROMPT = """You are Groovi, about to search for music.
+Keep the user engaged with a SHORT response while searching (2 sentences, max 24 words).
+Acknowledge their music request naturally.
+
+Examples:
+- "Perfect! Searching for calm tracks now."
+- "Great choice! Finding some upbeat music."
+- "Love it! Looking for those vibes."
+"""
+    
     # Idle timeout: go back to WAKE_WORD after this many seconds of silence
     IDLE_TIMEOUT_SEC = 5.0
+    
+    # Cooldown after TTS to prevent false wake word triggers from echo/noise
+    WAKE_WORD_COOLDOWN_SEC = 1.0
     
     def __init__(self):
         """Initialize state and models"""
@@ -54,6 +69,12 @@ Example responses:
         
         # Track last activity for idle timeout
         self.last_activity_time: float = 0.0
+        
+        # Cooldown timestamp - ignore wake word until this time
+        self.wake_word_cooldown_until: float = 0.0
+        
+        # TTS playback tracking - True while frontend is playing TTS audio
+        self.tts_playing: bool = False
         
         # Conversation history for LLM context
         self.conversation_history: list[dict] = []
@@ -77,6 +98,21 @@ Example responses:
         self.tts = StreamingTTS()
         
         logger.info("✅ VoiceAssistant initialized in WAKE_WORD mode")
+    
+    def _enter_wake_word_with_cooldown(self):
+        """
+        Switch to WAKE_WORD state with proper cleanup and cooldown.
+        
+        Clears all audio buffers and resets wake word model to prevent
+        false triggers from residual TTS audio or noise.
+        """
+        self.state = "WAKE_WORD"
+        self.audio_buffer = []
+        self.stt.clear_buffer()
+        self.wake_word.reset()  # Clear internal wake word model state
+        # Set cooldown - ignore wake word detections for a brief period
+        self.wake_word_cooldown_until = time.time() + self.WAKE_WORD_COOLDOWN_SEC
+        logger.info(f"🔇 Wake word cooldown active for {self.WAKE_WORD_COOLDOWN_SEC}s")
     
     def cleanup(self):
         """Clean up all models and free memory"""
@@ -116,6 +152,10 @@ Example responses:
         
         # ========== WAKE_WORD STATE ==========
         if self.state == "WAKE_WORD":
+            # Check cooldown - ignore detections right after TTS to prevent echo triggers
+            if time.time() < self.wake_word_cooldown_until:
+                return  # Still in cooldown, ignore this chunk
+            
             if self.wake_word.detect(chunk):
                 self.state = "LISTENING"
                 self.audio_buffer = []
@@ -141,7 +181,7 @@ Example responses:
             self.stt.add_chunk(chunk)
             
             # Check if user stopped speaking
-            if self.stt.speech_ended(chunk):
+            if self.stt.vad.speech_ended(chunk):
                 self.state = "PROCESSING"
                 self.last_activity_time = time.time()  # Reset timer
                 logger.info("🎤 Speech ended → PROCESSING")
@@ -161,47 +201,118 @@ Example responses:
                 
                 # Check for pause/stop command → Switch to click mode
                 if self._is_pause_command(transcript):
-                    self.state = "WAKE_WORD"
-                    logger.info("⏸️ Pause command → returning to WAKE_WORD")
+                    # 1. Send response text to frontend
+                    response = "Stopping voice mode. Goodbye!"
+                    yield {"event": "response", "text": response}
+                    
+                    # 2. Switch to SPEAKING and stream TTS audio
+                    self.state = "SPEAKING"
+                    async for audio_chunk in self.tts.stream(response):
+                        yield {"event": "audio", "data": audio_chunk}
+                    
+                    # 3. After TTS finishes, switch to WAKE_WORD with cooldown
+                    self._enter_wake_word_with_cooldown()
+                    logger.info("⏸️ Pause command → WAKE_WORD (with cooldown)")
                     yield {"event": "voice_mode_stop", "message": "Switching to click mode"}
                     return
                 
                 # Check for "play" keyword → Music Agent
                 if self._is_music_request(transcript):
+                    # Add user message to conversation history
+                    self.conversation_history.append({
+                        "role": "user",
+                        "content": transcript
+                    })
+                    
                     yield {"event": "agent_started"}
                     
-                    # Build context from conversation history
+                    # Build context from conversation history (before current message)
                     context = self._get_context_for_agent()
                     query = f"{context} | Current request: {transcript}" if context else transcript
                     
-                    # Run music agent
+                    # Generate filler response using LLM (contextual, engaging)
+                    filler_response = self._generate_filler_response(transcript)
+                    logger.info(f"🔊 Filler: {filler_response}")
+                    
+                    # Add filler to history
+                    self.conversation_history.append({
+                        "role": "assistant",
+                        "content": filler_response
+                    })
+                    
+                    yield {"event": "response", "text": filler_response}
+                    
+                    # Run music agent and filler TTS concurrently
                     if self.music_agent:
                         try:
-                            logger.info(f"🎵 Running music agent: {query[:50]}...")
-                            result = await self.music_agent.run(query)
+                            # Start both tasks concurrently
+                            logger.info(f"🎵 Starting music agent: {query[:50]}...")
+                            
+                            # Create async tasks
+                            agent_task = asyncio.create_task(self.music_agent.run(query))
+                            
+                            # Switch to SPEAKING state while filler plays
+                            self.state = "SPEAKING"
+                            
+                            # Stream filler TTS
+                            tts_generator = self.tts.stream(filler_response)
+                            
+                            # Stream TTS while agent runs
+                            async for audio_chunk in tts_generator:
+                                # Check if agent finished
+                                if agent_task.done():
+                                    # Agent finished! Stop TTS
+                                    self.tts.stop()
+                                    logger.info("🛑 Agent finished, stopping filler TTS")
+                                    break
+                                yield {"event": "audio", "data": audio_chunk}
+                            
+                            # Wait for agent result
+                            result = await agent_task
                             logger.info(f"🎵 Agent result keys: {result.keys() if result else 'None'}")
                             
-                            # Check for tracks (even if there's also an error)
+                            # Check for tracks
                             tracks = result.get("tracks", [])
+                            summary = result.get("summary", "")
                             error = result.get("error")
                             
                             if tracks:
-                                # Send songs to frontend
-                                yield {"event": "songs", "songs": tracks}
-                                
-                                # Build TTS response with first 3 song names
+                                # Success! Add music result to history
                                 song_names = [f"{t['name']} by {t['artist']}" for t in tracks[:3]]
-                                response = f"Here are some songs for you: {', '.join(song_names)}."
+                                history_entry = f"{summary} Tracks: {', '.join(song_names)}"
+                                self.conversation_history.append({
+                                    "role": "assistant",
+                                    "content": history_entry
+                                })
+                                # Send songs to frontend (summary for display, not TTS)
+                                yield {
+                                    "event": "songs",
+                                    "summary": summary,
+                                    "songs": tracks
+                                }
+                                
+                                # Switch to WAKE_WORD with cooldown (music playing, done!)
+                                self._enter_wake_word_with_cooldown()
+                                yield {"event": "music_playing"}
+                                logger.info("🎵 Music playing → WAKE_WORD (with cooldown)")
+                                return
+                                
                             elif error:
+                                # Agent failed, speak error and stay in LISTENING
                                 logger.warning(f"Music agent error: {error}")
                                 response = "I had trouble searching Spotify. Try clicking the button instead!"
                             else:
+                                # No tracks found
                                 response = "Sorry, I couldn't find songs for that. Try describing your mood differently."
+                                
                         except Exception as e:
                             logger.error(f"Music agent exception: {e}")
                             response = "Something went wrong while searching. Try the click mode!"
                     else:
                         response = "Music search isn't available right now. Try the click mode instead!"
+                    
+                    # If we got here, music agent failed - do normal TTS flow
+                    # (fall through to TTS code below)
                 else:
                     # Conversational response via LLM
                     response = self._chat_with_llm(transcript)
@@ -210,24 +321,29 @@ Example responses:
                 
                 # Switch to speaking and stream TTS
                 self.state = "SPEAKING"
+                self.tts_playing = True  # Mark TTS as playing on frontend
                 async for audio_chunk in self.tts.stream(response):
                     yield {"event": "audio", "data": audio_chunk}
                 
-                # After speaking, wait briefly then go back to LISTENING
-                # (5 second conversational buffer)
-                self.state = "LISTENING"
-                self.stt.clear_buffer()
-                yield {"event": "listening"}
+                # Stay in SPEAKING state - wait for frontend tts_complete callback
+                # The frontend will send {"event": "tts_complete"} when audio.onended fires
+                # This prevents idle timeout from triggering while TTS is still playing
+                logger.info("🔊 TTS sent - waiting for frontend playback to complete")
         
         # ========== SPEAKING STATE ==========
         elif self.state == "SPEAKING":
-            # Check for interrupt (user started speaking)
-            if self.wake_word.detect(chunk):
+            # Use VAD to detect if user is trying to interrupt (barge-in)
+            speech_prob = self.stt.vad.get_speech_probability(chunk)
+            
+            # If user is speaking with high confidence, interrupt TTS
+            if speech_prob > 0.7:  # Higher threshold to avoid false interrupts
                 self.tts.stop()
+                self.tts_playing = False
                 self.state = "LISTENING"
                 self.stt.clear_buffer()
-                logger.info("🛑 User interrupted → LISTENING")
-                yield {"event": "interrupted"}
+                self.last_activity_time = time.time()
+                logger.info(f"🛑 User interrupted TTS (VAD: {speech_prob:.2f}) → LISTENING")
+                yield {"event": "tts_interrupted"}
                 yield {"event": "listening"}
     
     def _chat_with_llm(self, user_message: str) -> str:
@@ -322,3 +438,69 @@ Example responses:
         ]
         text_lower = text.lower()
         return any(phrase in text_lower for phrase in phrases)
+    
+    def _generate_filler_response(self, user_message: str) -> str:
+        """
+        Generate engaging filler response while music agent searches.
+        Uses Groq LLM with conversation history for contextual responses.
+        Falls back to hardcoded response if LLM fails.
+        
+        Args:
+            user_message: User's music request (e.g., "play something calm")
+            
+        Returns:
+            Short filler response (~12 words max)
+        """
+        # Try Groq LLM if available
+        if self.llm:
+            try:
+                # Build messages with filler system prompt + recent history
+                messages = [
+                    {"role": "system", "content": self.FILLER_SYSTEM_PROMPT},
+                    *self.conversation_history[-4:],  # Last 2 turns for context
+                    {"role": "user", "content": user_message}
+                ]
+                
+                response = self.llm.chat.completions.create(
+                    messages=messages,
+                    model="llama-3.1-8b-instant",  # Fast model
+                    max_tokens=30,  # Force very short response
+                    temperature=0.7
+                )
+                
+                filler = response.choices[0].message.content.strip()
+                logger.info(f"💬 Filler generated: {filler}")
+                return filler
+                
+            except Exception as e:
+                logger.warning(f"Filler LLM failed: {e}, using fallback")
+                # Fall through to hardcoded
+        
+        # Fallback: simple hardcoded response
+        return "Perfect! Searching for music now."
+    
+    async def handle_message(self, message: dict) -> AsyncGenerator[dict, None]:
+        """
+        Handle JSON messages from frontend (e.g., tts_complete callback).
+        
+        Args:
+            message: Parsed JSON message from frontend
+            
+        Yields:
+            Events to send back to frontend
+        """
+        event_type = message.get("event")
+        
+        if event_type == "tts_complete":
+            # Frontend finished playing TTS audio
+            if self.state == "SPEAKING" and self.tts_playing:
+                self.tts_playing = False
+                self.state = "LISTENING"
+                self.stt.clear_buffer()
+                self.last_activity_time = time.time()  # Start idle timer NOW
+                logger.info("🔊 Frontend TTS playback complete → LISTENING")
+                yield {"event": "listening"}
+            else:
+                logger.warning(f"Received tts_complete in unexpected state: {self.state}")
+        else:
+            logger.warning(f"Unknown message event: {event_type}")

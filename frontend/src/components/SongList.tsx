@@ -13,11 +13,14 @@ interface SongListProps {
 export function SongList({ songs, currentTrackId, onSongSelect, theme = 'dark' }: SongListProps) {
     if (songs.length === 0) return null
 
-    // Animation delay classes for staggered entry
-    const delayClasses = ['animate-delay-1', 'animate-delay-2', 'animate-delay-3', 'animate-delay-4', 'animate-delay-5']
+    // Animation delay classes for staggered entry (10 songs)
+    const delayClasses = [
+        'animate-delay-1', 'animate-delay-2', 'animate-delay-3', 'animate-delay-4', 'animate-delay-5',
+        'animate-delay-6', 'animate-delay-7', 'animate-delay-8', 'animate-delay-9', 'animate-delay-10'
+    ]
 
     return (
-        <div className="animate-fade-in space-y-2">
+        <div className="animate-fade-in space-y-2 max-h-[480px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-purple-500/30 scrollbar-track-transparent">
             {songs.map((song, index) => {
                 // Extract track ID from URI (spotify:track:XXXXX)
                 const trackId = song.uri.split(':')[2]

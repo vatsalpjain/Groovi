@@ -1,14 +1,15 @@
 """
-Streaming Speech-to-Text Service using Faster-Whisper with Silero VAD
+Streaming Speech-to-Text Service using Faster-Whisper
 
 Buffers audio chunks and transcribes when user stops speaking.
-Uses VAD to detect speech boundaries.
+Uses VADService for speech boundary detection.
 """
 
 import logging
 import tempfile
 import os
-from pathlib import Path
+
+from voice_ai.vad_service import get_vad_service
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +23,12 @@ class StreamingSTT:
     """
     
     def __init__(self):
-        """Initialize Faster-Whisper model and Silero VAD"""
+        """Initialize Faster-Whisper model and VAD service"""
         self.whisper_model = None
-        self.vad_model = None
         self.audio_buffer: list[bytes] = []
-        self.is_speaking = False
-        self.silence_frames = 0
-        self.silence_threshold = 10  # ~1 second of silence at 100ms chunks
+        
+        # Get shared VAD service
+        self.vad = get_vad_service()
         
         # Initialize Whisper
         try:
@@ -45,67 +45,11 @@ class StreamingSTT:
         except ImportError:
             logger.error("❌ faster-whisper not installed")
             raise
-        
-        # Initialize Silero VAD
-        try:
-            import torch
-            
-            logger.info("🎤 Loading Silero VAD...")
-            self.vad_model, utils = torch.hub.load(
-                repo_or_dir='snakers4/silero-vad',
-                model='silero_vad'
-            )
-            self.get_speech_timestamps = utils[0]
-            logger.info("✅ Silero VAD loaded")
-            
-        except Exception as e:
-            logger.error(f"❌ VAD load failed: {e}")
-            raise
     
     def add_chunk(self, audio_chunk: bytes):
         """Add audio chunk to buffer"""
         self.audio_buffer.append(audio_chunk)
-    
-    def speech_ended(self, audio_chunk: bytes) -> bool:
-        """
-        Check if user stopped speaking using VAD.
-        
-        Args:
-            audio_chunk: Raw PCM audio (16kHz, 16-bit mono)
-            
-        Returns:
-            True if speech ended (silence detected after speech)
-        """
-        try:
-            import torch
-            import numpy as np
-            
-            # Convert bytes to tensor
-            audio_array = np.frombuffer(audio_chunk, dtype=np.int16)
-            audio_tensor = torch.from_numpy(audio_array).float() / 32768.0
-            
-            # Get speech probability
-            speech_prob = self.vad_model(audio_tensor, 16000).item()
-            
-            if speech_prob > 0.5:
-                # User is speaking
-                self.is_speaking = True
-                self.silence_frames = 0
-                return False
-            else:
-                # Silence detected
-                if self.is_speaking:
-                    self.silence_frames += 1
-                    # If enough silence after speech, user stopped
-                    if self.silence_frames >= self.silence_threshold:
-                        self.is_speaking = False
-                        self.silence_frames = 0
-                        return True
-                return False
-                
-        except Exception as e:
-            logger.error(f"VAD error: {e}")
-            return False
+
     
     def transcribe(self, audio_chunks: list[bytes] = None) -> str:
         """
@@ -152,10 +96,9 @@ class StreamingSTT:
             return ""
     
     def clear_buffer(self):
-        """Clear audio buffer"""
+        """Clear audio buffer and reset VAD state"""
         self.audio_buffer = []
-        self.is_speaking = False
-        self.silence_frames = 0
+        self.vad.reset()
     
     def _write_wav(self, f, audio_data: bytes):
         """Write raw PCM data as WAV file"""
