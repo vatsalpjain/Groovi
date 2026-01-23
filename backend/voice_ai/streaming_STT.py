@@ -6,8 +6,7 @@ Uses VADService for speech boundary detection.
 """
 
 import logging
-import tempfile
-import os
+import numpy as np
 
 from voice_ai.vad_service import get_vad_service
 
@@ -70,25 +69,25 @@ class StreamingSTT:
             # Combine all chunks
             audio_data = b''.join(chunks)
             
-            # Write to temp file (Whisper needs file path)
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                # Write WAV header + data
-                self._write_wav(f, audio_data)
-                temp_path = f.name
+            # Check minimum duration (prevent transcribing noise bursts)
+            duration_sec = len(audio_data) / (16000 * 2)  # 16kHz, 16-bit (2 bytes/sample)
+            if duration_sec < 0.5:
+                logger.info(f"⏭️ Ignoring {duration_sec:.2f}s audio (too short, likely noise)")
+                return ""
             
-            # Transcribe
+            # Convert bytes to numpy array (no temp file needed!)
+            audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
+            
+            # Transcribe directly from numpy array
             segments, _ = self.whisper_model.transcribe(
-                temp_path,
-                beam_size=5,
+                audio_array,
+                beam_size=1, 
                 language="en"
             )
             
             transcript = " ".join([seg.text.strip() for seg in segments])
             
-            # Cleanup
-            os.unlink(temp_path)
-            
-            logger.info(f"📝 Transcribed: {transcript[:50]}...")
+            logger.info(f"📝 Transcribed ({duration_sec:.1f}s): {transcript[:50]}...")
             return transcript.strip()
             
         except Exception as e:
@@ -99,30 +98,3 @@ class StreamingSTT:
         """Clear audio buffer and reset VAD state"""
         self.audio_buffer = []
         self.vad.reset()
-    
-    def _write_wav(self, f, audio_data: bytes):
-        """Write raw PCM data as WAV file"""
-        import struct
-        
-        sample_rate = 16000
-        channels = 1
-        bits_per_sample = 16
-        
-        data_size = len(audio_data)
-        file_size = 36 + data_size
-        
-        # WAV header
-        f.write(b'RIFF')
-        f.write(struct.pack('<I', file_size))
-        f.write(b'WAVE')
-        f.write(b'fmt ')
-        f.write(struct.pack('<I', 16))  # Subchunk1Size
-        f.write(struct.pack('<H', 1))   # AudioFormat (PCM)
-        f.write(struct.pack('<H', channels))
-        f.write(struct.pack('<I', sample_rate))
-        f.write(struct.pack('<I', sample_rate * channels * bits_per_sample // 8))
-        f.write(struct.pack('<H', channels * bits_per_sample // 8))
-        f.write(struct.pack('<H', bits_per_sample))
-        f.write(b'data')
-        f.write(struct.pack('<I', data_size))
-        f.write(audio_data)

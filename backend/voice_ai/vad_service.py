@@ -61,7 +61,7 @@ class VADService:
             logger.error(f"VAD error: {e}")
             return 0.0
     
-    def speech_ended(self, audio_chunk: bytes) -> bool:
+    def speech_ended(self, audio_chunk: bytes, threshold: int = None, speech_prob_threshold: float = 0.5) -> bool:
         """
         Check if user stopped speaking (stateful).
         
@@ -69,13 +69,18 @@ class VADService:
         
         Args:
             audio_chunk: Raw PCM audio (16kHz, 16-bit mono)
+            threshold: Custom silence threshold (frames). If None, uses self.silence_threshold
+            speech_prob_threshold: VAD probability threshold (0.0-1.0). Speech detected when prob > this value. Default 0.5
             
         Returns:
             True if speech ended (silence detected after speech)
         """
         speech_prob = self.get_speech_probability(audio_chunk)
         
-        if speech_prob > 0.5:
+        # Use custom threshold or default
+        silence_threshold = threshold if threshold is not None else self.silence_threshold
+        
+        if speech_prob > speech_prob_threshold:
             # User is speaking
             self.is_speaking = True
             self.silence_frames = 0
@@ -83,13 +88,30 @@ class VADService:
         else:
             # Silence detected
             if self.is_speaking:
-                self.silence_frames += 1
+                self.silence_frames += 0.7
                 # If enough silence after speech, user stopped
-                if self.silence_frames >= self.silence_threshold:
+                if self.silence_frames >= silence_threshold:
                     self.is_speaking = False
                     self.silence_frames = 0
                     return True
             return False
+    
+    def is_user_speaking(self, audio_chunk: bytes, threshold: float = 0.7) -> bool:
+        """
+        Check if user is currently speaking (instant detection, no state).
+        
+        Useful for barge-in detection during TTS playback.
+        Higher threshold recommended to avoid false positives from noise/echo.
+        
+        Args:
+            audio_chunk: Raw PCM audio (512 bytes = 16ms @ 16kHz)
+            threshold: Minimum speech probability to consider as active speech (0.0-1.0, default: 0.7)
+        
+        Returns:
+            True if speech probability exceeds threshold, False otherwise
+        """
+        prob = self.get_speech_probability(audio_chunk)
+        return prob > threshold
     
     def reset(self):
         """Reset speech-end detection state"""
