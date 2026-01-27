@@ -26,12 +26,8 @@ class TranscriptionResponse(BaseModel):
     duration_estimate: float = Field(..., description="Estimated audio duration in seconds")
 
 class MoodAnalysis(BaseModel):
-    """Mood analysis result with AI summary"""
+    """Mood analysis result"""
     category: str
-    description: str
-    summary: str
-    score: float = Field(..., ge=-1.0, le=1.0)
-    intensity: str
 
 class Song(BaseModel):
     """Spotify track information"""
@@ -45,3 +41,25 @@ class RecommendationResponse(BaseModel):
     """Complete API response"""
     mood_analysis: MoodAnalysis
     songs: List[Song] = Field(..., min_length=1, max_length=10)
+
+class PlaylistCreateRequest(BaseModel):
+    """Request to create a Spotify playlist"""
+    name: str
+    track_uris: List[str]
+    description: str = ""
+    public: bool = False
+
+class RecommendationRequest(BaseModel):
+    """Request for mood-based recommendations"""
+    mood: str
+    limit: int = 5
+
+class PlaybackRequest(BaseModel):
+    """Request to control Spotify playback"""
+    uris: Optional[List[str]] = None
+    device_id: Optional[str] = None
+
+class PlaylistAddRequest(BaseModel):
+    """Request to add tracks to a playlist"""
+    playlist_id: str
+    track_uris: List[str]

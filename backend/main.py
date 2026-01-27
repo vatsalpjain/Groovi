@@ -8,9 +8,9 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from models.schemas import TextInput, RecommendationResponse, TranscriptionResponse, TTSRequest
-from services.mood_analyzer import mood_analyzer
+from config.schemas import (
+    TextInput, RecommendationResponse, TranscriptionResponse, TTSRequest,PlaylistCreateRequest, RecommendationRequest, PlaybackRequest, PlaylistAddRequest
+)
 from voice_ai.local_audio_service import get_local_audio_service
 from voice_ai.voice_assistant import VoiceAssistant
 from services.spotify_auth import spotify_auth
@@ -34,26 +34,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# ==================== Request Models ====================
-
-class PlaylistCreateRequest(BaseModel):
-    """Request to create a Spotify playlist"""
-    name: str
-    track_uris: List[str]
-    description: str = ""
-    public: bool = False
-class RecommendationRequest(BaseModel):
-    mood: str
-    limit: int = 5
-
-class PlaybackRequest(BaseModel):
-    uris: Optional[List[str]] = None
-    device_id: Optional[str] = None
-
-class PlaylistAddRequest(BaseModel):
-    playlist_id: str
-    track_uris: List[str]
 
 # ==================== Spotify OAuth ====================
 
@@ -223,13 +203,12 @@ async def transcribe_audio(audio: UploadFile = File(...)):
 @app.post("/recommend")
 async def recommend_songs(text_input: TextInput):
     """
-    AI Agent-based music recommendation via MCP
+    AI Agent-based music recommendation
     
     Flow:
-    1. Use AI Agent with Groq function calling
-    2. Agent explores Spotify via MCP tools (stdio)
-    3. Agent curates 5 best tracks with reasoning
-    4. Returns tracks + thought process for UI display
+    1. Use AI Agent with Groq + MCP (searches Spotify intelligently)
+    2. If Groq totally fails → VADER sentiment analysis fallback (10 curated songs)
+    3. Returns tracks + thought process for UI display
     """
     if not text_input.text:
         raise HTTPException(status_code=400, detail="No text provided")
@@ -246,23 +225,16 @@ async def recommend_songs(text_input: TextInput):
         groq_client = Groq(api_key=settings.GROQ_API_KEY)
         agent = MusicRecommendationAgent(groq_client)
         
-        # Run the agent (uses MCP client internally)
+        # Run the agent (handles all fallback internally)
         result = await agent.run(user_query)
         await agent.close()
         
-        # Check if agent succeeded
-        if "error" in result:
-            logger.error(f"❌ Agent error: {result.get('error')}")
-            return await fallback_recommend(user_query)
-        
         # Format response
         tracks = result.get("tracks", [])
-        if not tracks:
-            return await fallback_recommend(user_query)
         
         # Format songs for frontend
         songs = []
-        for track in tracks[:5]:
+        for track in tracks:
             songs.append({
                 "name": track.get("name", "Unknown"),
                 "artist": track.get("artist", "Unknown"),
@@ -286,67 +258,8 @@ async def recommend_songs(text_input: TextInput):
         }
         
     except Exception as e:
-        logger.error(f"❌ Agent failed: {e}")
-        return await fallback_recommend(user_query)
-
-async def fallback_recommend(user_query: str):
-    """
-    Fallback to simple mood-based recommendation when agent fails.
-    Uses MCP client via stdio instead of HTTP.
-    """
-    # Analyze mood with Groq/VADER
-    mood_analysis, _ = mood_analyzer.analyze(user_query)
-    mood_category = mood_analysis['mood_category']
-    
-    logger.info(f"🎯 Fallback: Using mood '{mood_category}'")
-    
-    try:
-        # Use MCP client to search for tracks
-        async with get_mcp_client() as mcp:
-            # Search based on mood
-            mood_queries = {
-                "happy": "happy upbeat feel good",
-                "energetic": "energetic pump up workout",
-                "calm": "calm relaxing peaceful",
-                "sad": "emotional sad melancholy",
-                "angry": "intense angry powerful",
-                "anxious": "soothing calm ambient",
-                "romantic": "love romantic ballad",
-                "neutral": "popular hits top"
-            }
-            query = mood_queries.get(mood_category, "popular hits")
-            
-            result = await mcp.call_tool("search_tracks", {"query": query, "limit": 5})
-            songs = result.get("tracks", [])
-        
-    except Exception as e:
-        logger.error(f"❌ MCP fallback failed: {e}")
-        # Ultimate fallback - use curated library
-        from data.mood_libraries import MOOD_SONG_LIBRARIES
-        import random
-        
-        curated = MOOD_SONG_LIBRARIES.get(mood_category, [])
-        songs = random.sample(curated, min(5, len(curated)))
-        songs = [{
-            "name": s["name"],
-            "artist": s["artist"],
-            "uri": f"spotify:search:{s['name']} {s['artist']}",
-            "album_art": "",
-            "external_url": f"https://open.spotify.com/search/{s['name']}"
-        } for s in songs]
-    
-    return {
-        "mood_analysis": {
-            "category": mood_analysis['mood_category'],
-            "description": mood_analysis['mood_description'],
-            "summary": mood_analysis['summary'],
-            "score": mood_analysis['score'],
-            "intensity": mood_analysis['intensity']
-        },
-        "songs": songs[:5],
-        "thought_process": [],
-        "agent_iterations": 0
-    }
+        logger.error(f"❌ Recommend endpoint failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Music recommendation failed: {str(e)}")
 
 # ==================== Spotify Playlist Management ====================
 
@@ -435,6 +348,7 @@ def start_server():
         host="0.0.0.0",
         port=5000,
         reload=True,
+        reload_excludes=[".venv/*", "__pycache__/*", "*.pyc"],
         log_level="info"
     )
 

@@ -10,6 +10,8 @@ The agent can:
 3. Browse by genre and new releases
 4. Iterate to refine results
 5. Curate final playlist with reasoning
+
+Falls back to VADER sentiment analysis if Groq API fails completely.
 """
 
 import json
@@ -17,6 +19,7 @@ import logging
 from typing import Dict, Any, Optional
 
 from services.mcp_client import SpotifyMCPClient
+from services.vader_fallback import get_fallback_songs
 
 logger = logging.getLogger(__name__)
 
@@ -153,30 +156,42 @@ AGENT_TOOLS = [
     }
 ]
 
-# System prompt for the agent
-SYSTEM_PROMPT = """You are a music recommendation AI with access to Spotify tools.
+# System prompt for the agent - Balanced for quality and efficiency
+SYSTEM_PROMPT = """You are a music curation AI with access to Spotify tools. Your goal is to find 10 PERFECT songs that match the user's request.
 
-Your goal: Find 10 PERFECT songs based on what the user describes.
+## UNDERSTANDING USER INTENT:
 
-## STRATEGY:
-1. ARTIST mentioned → Use search_artist, then get_artist_top_tracks
-2. MOOD/ACTIVITY → Use search_tracks with descriptive keywords
-3. GENRE → Use search_by_genre
-4. NEW music → Use get_new_releases
+1. **Specific Song Name**: If user mentions a song title → Use search_tracks with the exact song name
+2. **Specific Artist**: If user names an artist → Use search_artist, then get_artist_top_tracks for their best songs
+3. **Mood/Vibe/Activity**: If user describes a feeling or activity → Use search_tracks with descriptive mood keywords
+4. **Genre Request**: If user asks for a genre → Use search_by_genre
+5. **Discovery/Related**: If user likes an artist → Use get_related_artists to find similar artists, then explore their tracks
+6. **New Music**: If user wants fresh releases → Use get_new_releases
 
-## IMPORTANT:
-- Call 2-3 tools to gather song options
-- Do NOT explain your reasoning - just call the tools
-- After gathering data, return your final answer as JSON
+## SEARCH STRATEGY:
 
-## FINAL RESPONSE (JSON only):
+- **Be thorough**: Call 2-4 tools to gather diverse options and ensure quality matches
+- **Understand context**: Consider the mood, vibe, and intent behind the user's request
+- **Explore wisely**: If searching by artist, also check related artists for variety
+- **Match the energy**: Pay attention to whether user wants upbeat, calm, energetic, sad, etc.
+
+## IMPORTANT RULES:
+
+- When an artist name is mentioned, ALWAYS use search_artist first to get their ID
+- For mood-based requests, use descriptive keywords in search_tracks (e.g., "happy upbeat", "calm relaxing")
+- Aim for diversity in your final selection - mix popular and lesser-known gems
+- Each track MUST have a clear reason explaining why it fits the request
+
+## FINAL RESPONSE (return as JSON):
+
+After exploring, return ONLY this JSON structure:
 {
     "tracks": [
-        {"name": "Song Name", "artist": "Artist", "uri": "spotify:track:...", "reason": "Why it fits"},
+        {"name": "Song Name", "artist": "Artist Name", "uri": "spotify:track:...", "reason": "Why this fits the user's request"},
         ... (exactly 10 tracks)
     ],
-    "mood": "detected mood",
-    "summary": "Brief curation explanation"
+    "mood": "detected mood/vibe from user's request",
+    "summary": "Brief explanation of your curation approach"
 }"""
 
 
@@ -216,6 +231,61 @@ class MusicRecommendationAgent:
         except Exception as e:
             logger.error(f"Tool execution error: {e}")
             return {"error": str(e)}
+    
+    def _truncate_tool_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Reduce token usage by sending only essential data to LLM.
+        
+        Metadata like album_art, external_url, etc. will be added later
+        during _enrich_tracks_with_metadata() so LLM doesn't need them.
+        
+        This reduces token usage by 70-80% per tool result!
+        
+        Args:
+            result: Raw tool result from MCP server
+            
+        Returns:
+            Truncated result with only essential fields for LLM decision-making
+        """
+        truncated = result.copy()
+        
+        # Tracks: Only name, artist, uri (metadata added later during enrichment)
+        if "tracks" in truncated:
+            truncated["tracks"] = [
+                {
+                    "name": t.get("name"),
+                    "artist": t.get("artist"),
+                    "uri": t.get("uri")
+                }
+                for t in truncated["tracks"][:15]  # Limit to first 15 instead of 20
+            ]
+            truncated["count"] = len(truncated["tracks"])
+        
+        # Artists: Only name and id (enough for LLM to decide next steps)
+        if "artists" in truncated:
+            truncated["artists"] = [
+                {"name": a.get("name"), "id": a.get("id")}
+                for a in truncated["artists"][:8]
+            ]
+            truncated["count"] = len(truncated["artists"])
+        
+        # Playlists: Only id and name
+        if "playlists" in truncated:
+            truncated["playlists"] = [
+                {"id": p.get("id"), "name": p.get("name")}
+                for p in truncated["playlists"][:5]
+            ]
+            truncated["count"] = len(truncated["playlists"])
+        
+        # Albums: Only id and name
+        if "albums" in truncated:
+            truncated["albums"] = [
+                {"id": alb.get("id"), "name": alb.get("name")}
+                for alb in truncated["albums"][:10]
+            ]
+            truncated["count"] = len(truncated["albums"])
+        
+        return truncated
 
     async def run(self, user_query: str) -> Dict[str, Any]:
         """
@@ -226,6 +296,44 @@ class MusicRecommendationAgent:
             
         Returns:
             Dict with tracks, mood, summary, and thought_process
+        """
+        # Try Groq + MCP agent first
+        try:
+            return await self._run_agent(user_query)
+        except Exception as e:
+            logger.error(f"❌ Agent totally failed: {e}")
+            logger.info("⚠️ Falling back to VADER sentiment analysis")
+            
+            # Use VADER fallback - returns 10 curated songs
+            fallback_songs = get_fallback_songs(user_query)
+            
+            return {
+                "tracks": [{
+                    "name": song["name"],
+                    "artist": song["artist"],
+                    "uri": f"spotify:search:{song['name']} {song['artist']}",
+                    "album_art": "",
+                    "external_url": f"https://open.spotify.com/search/{song['name']}",
+                    "reason": "Curated for your mood"
+                } for song in fallback_songs],
+                "mood": "fallback",
+                "summary": "Curated songs based on sentiment analysis (Groq unavailable)",
+                "thought_process": [{"iteration": 1, "action": "Used VADER fallback", "result": "10 curated songs"}],
+                "iterations": 1
+            }
+    
+    async def _run_agent(self, user_query: str) -> Dict[str, Any]:
+        """
+        Internal agent loop with Groq + MCP.
+        
+        Args:
+            user_query: User's music request
+            
+        Returns:
+            Dict with tracks, mood, summary, and thought_process
+            
+        Raises:
+            Exception: If Groq API completely fails
         """
         # Connect to MCP server at startup (no delay during tool calls)
         await self._ensure_mcp_connected()
@@ -329,18 +437,21 @@ Here are some tracks you found: {json.dumps(all_tracks[:20])}"""
                         # Execute the tool
                         result = await self.execute_tool(tool_name, arguments)
                         
-                        # Collect tracks from results
+                        # Collect tracks from results (BEFORE truncation - we need full data)
                         if "tracks" in result:
                             all_tracks.extend(result["tracks"])
                         
-                        # Add tool result to messages
+                        # Truncate result for LLM (remove metadata to save tokens)
+                        truncated_result = self._truncate_tool_result(result)
+                        
+                        # Add truncated tool result to messages
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tool_call.id,
-                            "content": json.dumps(result)
+                            "content": json.dumps(truncated_result)
                         })
                         
-                        logger.info(f"📦 Tool result: {len(str(result))} chars")
+                        logger.info(f"📦 Tool result: {len(str(result))} chars → {len(str(truncated_result))} chars (saved {len(str(result)) - len(str(truncated_result))} chars)")
                 
                 else:
                     # Agent returned final response (no more tool calls)
@@ -425,10 +536,11 @@ Here are some tracks you found: {json.dumps(all_tracks[:20])}"""
                     "reason": "Found by AI agent exploration"
                 })
         
+        # Return whatever we found (even if less than 10)
         return {
-            "tracks": unique_tracks[:10],
+            "tracks": unique_tracks,
             "mood": "curated",
-            "summary": "Curated from AI agent exploration Just For Your mood",
+            "summary": f"Curated {len(unique_tracks)} tracks from AI agent exploration",
             "thought_process": thought_process,
             "iterations": iterations
         }

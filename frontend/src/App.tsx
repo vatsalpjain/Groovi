@@ -15,8 +15,8 @@ import { SpotifyEmbed } from './components/SpotifyEmbed'
 import { ThoughtProcess } from './components/ThoughtProcess'
 import type { MoodAnalysis, Song, ThoughtStep } from './types'
 
-// Backend API URL
-const API_URL = 'http://localhost:8000'
+// Backend API URL - should match the backend server port (5000)
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 function App() {
   // Theme
