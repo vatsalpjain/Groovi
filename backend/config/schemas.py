@@ -27,7 +27,8 @@ class TranscriptionResponse(BaseModel):
 
 class MoodAnalysis(BaseModel):
     """Mood analysis result"""
-    category: str
+    category: str = Field(..., description="Mood category (e.g., happy, sad, energetic)")
+    description: str = Field(..., description="Reasoning for song selection based on mood analysis")
 
 class Song(BaseModel):
     """Spotify track information"""

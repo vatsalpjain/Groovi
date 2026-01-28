@@ -69,8 +69,12 @@ function App() {
         setMoodText(event.text)
         setOrbState('thinking')
       } else if (event.event === 'songs') {
-        // Music agent found songs - display in UI
+        // Music agent found songs - display in UI with mood analysis
         setSongs(event.songs)
+        // Set mood analysis from agent (same structure for both voice and click mode)
+        if (event.mood_analysis) {
+          setMoodAnalysis(event.mood_analysis)
+        }
       } else if (event.event === 'response') {
         // Agent responded
         setOrbState('complete')
@@ -450,7 +454,7 @@ function App() {
                     <h2 className={`text-2xl font-bold ${theme === 'dark' ? 'text-white' : 'text-zinc-900'}`}>
                       Your Mood Analysis
                     </h2>
-                    <TTSButton text={moodAnalysis.summary} />
+                    <TTSButton text={moodAnalysis.description} />
                   </div>
 
                   {/* Mood Badge - centered */}
@@ -458,18 +462,10 @@ function App() {
                     <span className="px-3 py-1 rounded-full text-sm font-medium bg-gradient-to-r from-purple-500 to-indigo-500 text-white">
                       {moodAnalysis.category}
                     </span>
-                    <span className={`text-sm ${theme === 'dark' ? 'text-zinc-300' : 'text-zinc-600'}`}>
-                      {moodAnalysis.intensity} intensity
-                    </span>
                   </div>
 
-                  {/* Summary */}
+                  {/* Description/Reasoning */}
                   <p className={`text-center leading-relaxed mb-4 ${theme === 'dark' ? 'text-zinc-200' : 'text-zinc-700'}`}>
-                    {moodAnalysis.summary}
-                  </p>
-
-                  {/* Description */}
-                  <p className={`text-center text-sm ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`}>
                     {moodAnalysis.description}
                   </p>
 

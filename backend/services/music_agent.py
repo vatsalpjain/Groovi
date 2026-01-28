@@ -156,43 +156,110 @@ AGENT_TOOLS = [
     }
 ]
 
-# System prompt for the agent - Balanced for quality and efficiency
-SYSTEM_PROMPT = """You are a music curation AI with access to Spotify tools. Your goal is to find 10 PERFECT songs that match the user's request.
+# System prompt for the agent - Strict and explicit to prevent function calling errors
+SYSTEM_PROMPT = """You are a music curation AI with access to Spotify tools. Find 10 PERFECT songs matching the user's request.
 
-## UNDERSTANDING USER INTENT:
+⚠️ CRITICAL FUNCTION CALLING RULES - READ FIRST:
 
-1. **Specific Song Name**: If user mentions a song title → Use search_tracks with the exact song name
-2. **Specific Artist**: If user names an artist → Use search_artist, then get_artist_top_tracks for their best songs
-3. **Mood/Vibe/Activity**: If user describes a feeling or activity → Use search_tracks with descriptive mood keywords
-4. **Genre Request**: If user asks for a genre → Use search_by_genre
-5. **Discovery/Related**: If user likes an artist → Use get_related_artists to find similar artists, then explore their tracks
-6. **New Music**: If user wants fresh releases → Use get_new_releases
+1. ALL numeric parameters (limit, count, etc.) MUST be raw integers, NEVER strings
+   ✅ CORRECT: {"limit": 10}
+   ❌ WRONG: {"limit": "10"} or {"limit": '10'}
 
-## SEARCH STRATEGY:
+2. Function arguments MUST be a single JSON object, NEVER an array
+   ✅ CORRECT: {"name": "Taylor Swift"}
+   ❌ WRONG: [{"name": "Taylor Swift"}]
 
-- **Be thorough**: Call 2-4 tools to gather diverse options and ensure quality matches
-- **Understand context**: Consider the mood, vibe, and intent behind the user's request
-- **Explore wisely**: If searching by artist, also check related artists for variety
-- **Match the energy**: Pay attention to whether user wants upbeat, calm, energetic, sad, etc.
+3. Only call ONE tool per response, wait for results before calling the next
 
-## IMPORTANT RULES:
+4. String parameters must use double quotes, not single quotes
+   ✅ CORRECT: {"query": "happy songs"}
+   ❌ WRONG: {'query': 'happy songs'}
 
-- When an artist name is mentioned, ALWAYS use search_artist first to get their ID
-- For mood-based requests, use descriptive keywords in search_tracks (e.g., "happy upbeat", "calm relaxing")
-- Aim for diversity in your final selection - mix popular and lesser-known gems
-- Each track MUST have a clear reason explaining why it fits the request
+AVAILABLE TOOLS AND THEIR ARGUMENTS:
 
-## FINAL RESPONSE (return as JSON):
+Tool: search_tracks
+Arguments: {"query": "song or mood keywords", "limit": 10}
+Examples:
+  {"query": "happy upbeat songs", "limit": 10}
+  {"query": "kamariya", "limit": 1}
+  {"query": "Indian dance music", "limit": 10}
 
-After exploring, return ONLY this JSON structure:
+Tool: search_artist
+Arguments: {"name": "artist name"}
+Examples:
+  {"name": "Arctic Monkeys"}
+  {"name": "Darshan Raval"}
+
+Tool: get_artist_top_tracks
+Arguments: {"artist_id": "spotify_artist_id"}
+Example: {"artist_id": "7Ln80lUS6He07XvHI8qqHH"}
+
+Tool: get_related_artists
+Arguments: {"artist_id": "spotify_artist_id"}
+Example: {"artist_id": "7Ln80lUS6He07XvHI8qqHH"}
+
+Tool: search_playlists
+Arguments: {"query": "playlist theme", "limit": 5}
+Example: {"query": "workout motivation", "limit": 5}
+
+Tool: get_playlist_tracks
+Arguments: {"playlist_id": "spotify_playlist_id", "limit": 20}
+Example: {"playlist_id": "37i9dQZF1DXcBWIGoYBM5M", "limit": 20}
+
+Tool: search_by_genre
+Arguments: {"genre": "genre_name", "limit": 10}
+Examples:
+  {"genre": "rock", "limit": 10}
+  {"genre": "bollywood", "limit": 10}
+
+Tool: get_genres
+Arguments: {}
+
+Tool: get_new_releases
+Arguments: {"limit": 10}
+Example: {"limit": 10}
+
+UNDERSTANDING USER INTENT:
+
+1. Specific Song Name → search_tracks with exact song name, limit: 1-5
+2. Specific Artist → search_artist, then get_artist_top_tracks
+3. Mood/Vibe/Activity → search_tracks with descriptive keywords, limit: 10-20
+4. Genre Request → search_by_genre
+5. Discovery/Similar → get_related_artists, explore their tracks
+6. New Music → get_new_releases
+
+YOUR WORKFLOW:
+
+PHASE 1 - EXPLORATION (Iterations 1-4):
+- Call 2-4 tools to gather diverse track options
+- Collect at least 15-20 tracks total
+- Match user's mood, energy level, and intent
+- When artist mentioned, use search_artist first to get their ID
+
+PHASE 2 - FINAL RESPONSE (Last iteration):
+Return ONLY this exact JSON structure (no extra text before or after):
+
 {
     "tracks": [
-        {"name": "Song Name", "artist": "Artist Name", "uri": "spotify:track:...", "reason": "Why this fits the user's request"},
-        ... (exactly 10 tracks)
+        {"name": "Song Name", "artist": "Artist Name", "uri": "spotify:track:xxx", "reason": "Why it fits"},
+        {"name": "Song Name 2", "artist": "Artist Name 2", "uri": "spotify:track:yyy", "reason": "Why it fits"},
+        ... (exactly 10 tracks total)
     ],
-    "mood": "detected mood/vibe from user's request",
+    "mood": "simple_mood_word",
     "summary": "Brief explanation of your curation approach"
-}"""
+}
+
+SEARCH STRATEGY:
+- Use descriptive keywords for mood searches ("happy upbeat", "calm relaxing")
+- Mix popular hits with hidden gems for diversity
+- Match energy level: upbeat/calm/energetic/sad/romantic
+- Quality over quantity: 10 perfect tracks beats 20 mediocre ones
+
+TYPE SAFETY REMINDER:
+- limit parameter = INTEGER → 1, 5, 10, 20 (NOT "1", "5", "10", "20")
+- artist_id/playlist_id/track_id = STRING → "7Ln80lUS6He07XvHI8qqHH"
+- name/query/genre = STRING → "Taylor Swift", "happy songs", "rock"
+"""
 
 
 class MusicRecommendationAgent:
@@ -318,6 +385,10 @@ class MusicRecommendationAgent:
                 } for song in fallback_songs],
                 "mood": "fallback",
                 "summary": "Curated songs based on sentiment analysis (Groq unavailable)",
+                "mood_analysis": {
+                    "category": "neutral",
+                    "description": "Curated songs based on sentiment analysis"
+                },
                 "thought_process": [{"iteration": 1, "action": "Used VADER fallback", "result": "10 curated songs"}],
                 "iterations": 1
             }
@@ -475,6 +546,21 @@ Here are some tracks you found: {json.dumps(all_tracks[:20])}"""
                                     result["tracks"], all_tracks
                                 )
                             
+                            # Generate mood_analysis from user query and selected tracks
+                            # Extract only names/artists to minimize memory usage
+                            if "tracks" in result and result["tracks"]:
+                                track_names_only = [
+                                    {"name": t.get("name", "Unknown"), "artist": t.get("artist", "Unknown")}
+                                    for t in result["tracks"][:10]
+                                ]
+                                mood_analysis = await self._generate_mood_analysis(user_query, track_names_only)
+                                result["mood_analysis"] = mood_analysis
+                            else:
+                                result["mood_analysis"] = {
+                                    "category": "neutral",
+                                    "description": "Selected songs based on your input"
+                                }
+                            
                             # Add thought process to result
                             result["thought_process"] = thought_process
                             result["iterations"] = iteration + 1
@@ -541,9 +627,96 @@ Here are some tracks you found: {json.dumps(all_tracks[:20])}"""
             "tracks": unique_tracks,
             "mood": "curated",
             "summary": f"Curated {len(unique_tracks)} tracks from AI agent exploration",
+            "mood_analysis": {
+                "category": "neutral",
+                "description": "Selected songs based on your input"
+            },
             "thought_process": thought_process,
             "iterations": iterations
         }
+    
+    async def _generate_mood_analysis(self, user_query: str, tracks: list) -> Dict[str, str]:
+        """
+        Generate mood category and description using LLM after finding tracks.
+        
+        Args:
+            user_query: Original user request
+            tracks: List of dicts with ONLY 'name' and 'artist' keys (minimized for efficiency)
+            
+        Returns:
+            Dict with 'category' (simple mood) and 'description' (reasoning)
+        """
+        # Create track list for context (already minimal - only names and artists)
+        track_list = "\n".join(
+            f"{i+1}. {t.get('name', 'Unknown')} by {t.get('artist', 'Unknown')}" 
+            for i, t in enumerate(tracks)
+        )
+        
+        prompt = f"""Analyze this music recommendation request and provide mood analysis.
+
+User Request: "{user_query}"
+
+Selected Tracks:
+{track_list}
+
+Task: Provide a JSON response with:
+1. "category": A SIMPLE mood word (happy, sad, energetic, calm, melancholic, romantic, focused, chill, pumped, relaxed)
+2. "description": A SHORT (1-2 sentences) explanation of why these tracks match the user's mood/request. Focus on mood matching and track characteristics.
+
+Rules:
+- Keep description under 100 words
+- Be logical and specific to the actual tracks selected
+- If only 1 song, describe why that specific song fits
+- Mention mood/vibe more than specific song names
+
+Return ONLY valid JSON:
+{{
+    "category": "simple_mood_word",
+    "description": "Brief explanation here"
+}}"""
+        
+        try:
+            response = self.groq.chat.completions.create(
+                model="llama-3.1-8b-instant",  # Fast model
+                messages=[
+                    {"role": "system", "content": "You are a music analysis expert. Always return valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=200
+            )
+            
+            content = response.choices[0].message.content.strip()
+            
+            # Parse JSON response
+            json_start = content.find('{')
+            json_end = content.rfind('}') + 1
+            
+            if json_start >= 0 and json_end > json_start:
+                json_str = content[json_start:json_end]
+                result = json.loads(json_str)
+                
+                # Validate and return
+                if "category" in result and "description" in result:
+                    logger.info(f"✅ Mood analysis: {result['category']} - {result['description'][:50]}...")
+                    return {
+                        "category": result["category"],
+                        "description": result["description"]
+                    }
+            
+            # Fallback if parsing fails
+            logger.warning("Failed to parse mood analysis, using fallback")
+            return {
+                "category": "neutral",
+                "description": "Selected songs based on your input"
+            }
+            
+        except Exception as e:
+            logger.error(f"Mood analysis generation failed: {e}")
+            return {
+                "category": "neutral",
+                "description": "Selected songs based on your input"
+            }
     
     def _enrich_tracks_with_metadata(self, agent_tracks: list, collected_tracks: list) -> list:
         """

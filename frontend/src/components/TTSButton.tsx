@@ -28,12 +28,15 @@ export function TTSButton({ text, disabled }: TTSButtonProps) {
 
         if (!text.trim() || isLoading) return
 
+        console.log('🔊 TTS: Starting synthesis for:', text.substring(0, 50) + '...')
         setIsLoading(true)
         setError(null)
 
         try {
             // Get audio blob from backend
+            console.log('📡 TTS: Calling API...')
             const audioBlob = await synthesizeSpeech(text)
+            console.log('✅ TTS: Received audio blob:', audioBlob.size, 'bytes, type:', audioBlob.type)
 
             // Create audio URL and play
             const audioUrl = URL.createObjectURL(audioBlob)
@@ -42,28 +45,32 @@ export function TTSButton({ text, disabled }: TTSButtonProps) {
 
             // Handle playback end
             audio.onended = () => {
+                console.log('✅ TTS: Playback ended')
                 setIsPlaying(false)
                 URL.revokeObjectURL(audioUrl)
             }
 
             // Handle errors
-            audio.onerror = () => {
+            audio.onerror = (e) => {
+                console.error('❌ TTS: Audio playback error:', e)
                 setError('Failed to play audio')
                 setIsPlaying(false)
                 URL.revokeObjectURL(audioUrl)
             }
 
             // Start playing
+            console.log('▶️ TTS: Starting playback...')
             await audio.play()
+            console.log('🎵 TTS: Playing...')
             setIsPlaying(true)
 
         } catch (err) {
+            console.error('❌ TTS: Error:', err)
             if (err instanceof ApiError) {
                 setError(err.detail || 'Speech synthesis failed')
             } else {
                 setError('Failed to generate speech')
             }
-            console.error('TTS error:', err)
         } finally {
             setIsLoading(false)
         }

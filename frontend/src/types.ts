@@ -2,11 +2,8 @@
 
 // Mood analysis from API
 export interface MoodAnalysis {
-  category: string;
-  description: string;
-  summary: string;
-  score: number;
-  intensity: string;
+  category: string;      // Mood category (e.g., happy, sad, energetic)
+  description: string;   // Reasoning for song selection based on mood analysis
 }
 
 // Song from Spotify

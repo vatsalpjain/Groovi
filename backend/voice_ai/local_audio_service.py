@@ -113,7 +113,7 @@ class LocalAudioService:
             # Run Whisper transcription
             segments, info = self.whisper_model.transcribe(
                 audio_path,
-                beam_size=5,
+                beam_size=1,
                 language="en"
             )
             

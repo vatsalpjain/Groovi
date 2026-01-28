@@ -3,6 +3,7 @@ Groovi Music Recommender API
 Uses MCP protocol (stdio) for Spotify integration
 """
 import logging
+import asyncio
 import uvicorn
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query
@@ -107,57 +108,74 @@ def root():
 async def voice_websocket(websocket: WebSocket):
     """
     WebSocket endpoint for real-time voice interaction.
-    
-    Client sends: Binary audio chunks (16kHz, 16-bit PCM)
-    Server sends: JSON events + Binary audio chunks
+    Full-duplex: Concurrent input/output processing.
     """
     await websocket.accept()
     logger.info("🔌 WebSocket connected")
     
-    # Tell frontend we're loading models (prevents timeout)
+    # Tell frontend we're loading models
     await websocket.send_json({"event": "loading", "message": "Loading voice models..."})
     
-    # Instantiate VoiceAssistant for this WebSocket session (takes 5-10 seconds)
+    # Instantiate VoiceAssistant
     voice_assistant = VoiceAssistant()
+    await voice_assistant.start()  # Start background workers
     
-    # Tell frontend we're ready to receive audio
+    # Tell frontend we're ready
     await websocket.send_json({"event": "ready"})
     logger.info("✅ Voice models loaded - ready for audio")
     
+    async def receive_loop():
+        """Handle incoming audio/messages from client"""
+        try:
+            while True:
+                message = await websocket.receive()
+                
+                if "bytes" in message:
+                    # Binary audio chunk -> Process
+                    await voice_assistant.handle_audio_chunk(message["bytes"])
+                    
+                elif "text" in message:
+                    # JSON message (e.g. tts_complete)
+                    import json
+                    try:
+                        data = json.loads(message["text"])
+                        await voice_assistant.handle_message(data)
+                    except json.JSONDecodeError:
+                        logger.error(f"Invalid JSON: {message['text']}")
+                        
+        except WebSocketDisconnect:
+            logger.info("🔌 Client disconnected")
+        except Exception as e:
+            logger.error(f"Receive loop error: {e}")
+            
+    async def send_loop():
+        """Send events/audio to client"""
+        try:
+            while True:
+                # Get event from output queue
+                event = await voice_assistant.output_queue.get()
+                
+                if event.get("event") == "audio":
+                    # Send binary audio
+                    await websocket.send_bytes(event["data"])
+                else:
+                    # Send JSON event
+                    await websocket.send_json(event)
+                    
+                voice_assistant.output_queue.task_done()
+                
+        except Exception as e:
+            logger.error(f"Send loop error: {e}")
+
     try:
-        while True:
-            # Receive data from client (can be binary audio or JSON text)
-            message = await websocket.receive()
+        # Run input and output loops concurrently
+        await asyncio.gather(receive_loop(), send_loop())
             
-            if "bytes" in message:
-                # Binary data = audio chunk
-                audio_chunk = message["bytes"]
-                # Process through voice assistant state machine
-                async for event in voice_assistant.process_audio(audio_chunk):
-                    if event.get("event") == "audio":
-                        # Binary audio data - send as bytes
-                        await websocket.send_bytes(event["data"])
-                    else:
-                        # JSON event - send as JSON
-                        await websocket.send_json(event)
-            
-            elif "text" in message:
-                # JSON message from frontend (e.g., tts_complete)
-                import json
-                try:
-                    data = json.loads(message["text"])
-                    logger.info(f"📨 Received message: {data.get('event')}")
-                    async for event in voice_assistant.handle_message(data):
-                        await websocket.send_json(event)
-                except json.JSONDecodeError:
-                    logger.error(f"Invalid JSON message: {message['text']}")
-            
-    except WebSocketDisconnect:
-        logger.info("🔌 WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"WebSocket handler error: {e}")
     finally:
-        # Clean up models and free RAM
         voice_assistant.cleanup()
-        logger.info("🧹 Models unloaded - RAM freed")
+        logger.info("🧹 connection closed")
 
 
 # ==================== Audio Transcription ====================
@@ -244,14 +262,14 @@ async def recommend_songs(text_input: TextInput):
                 "reason": track.get("reason", "")
             })
         
+        # Get mood_analysis directly from agent (single source of truth)
+        mood_analysis = result.get("mood_analysis", {
+            "category": "neutral",
+            "description": "Selected songs based on your input"
+        })
+        
         return {
-            "mood_analysis": {
-                "category": result.get("mood", "neutral"),
-                "description": result.get("summary", ""),
-                "summary": result.get("summary", ""),
-                "score": 0.5,
-                "intensity": "moderate"
-            },
+            "mood_analysis": mood_analysis,
             "songs": songs,
             "thought_process": result.get("thought_process", []),
             "agent_iterations": result.get("iterations", 0)

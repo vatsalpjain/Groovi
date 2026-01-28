@@ -81,7 +81,7 @@ class StreamingSTT:
             # Transcribe directly from numpy array
             segments, _ = self.whisper_model.transcribe(
                 audio_array,
-                beam_size=1, 
+                beam_size=3, 
                 language="en"
             )
             

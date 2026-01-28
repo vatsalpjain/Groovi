@@ -38,7 +38,7 @@ class VADService:
         # State for speech-end detection
         self.is_speaking = False
         self.silence_frames = 0
-        self.silence_threshold = 10  # ~1 second of silence at 100ms chunks
+        self.silence_threshold = 20  # ~2 seconds of silence (was 10)
     
     def get_speech_probability(self, audio_chunk: bytes) -> float:
         """

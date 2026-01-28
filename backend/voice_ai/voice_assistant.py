@@ -110,7 +110,45 @@ Examples:
         self.stt = StreamingSTT()
         self.tts = StreamingTTS()
         
+        # Queues for full-duplex communication
+        self.output_queue: asyncio.Queue = asyncio.Queue()
+        self.tts_queue: asyncio.Queue = asyncio.Queue()
+        
+        # Background tasks
+        self.tts_task: asyncio.Task | None = None
+        
         logger.info("✅ VoiceAssistant initialized in WAKE_WORD mode")
+
+    async def start(self):
+        """Start background workers"""
+        if not self.tts_task:
+            self.tts_task = asyncio.create_task(self._tts_worker())
+            logger.info("▶️ VoiceAssistant workers started")
+
+    async def _tts_worker(self):
+        """Background worker to consume text and stream TTS audio"""
+        while True:
+            try:
+                # Get text to speak
+                text = await self.tts_queue.get()
+                
+                if not text:
+                    continue
+                    
+                # Signal speaking start
+                self._switch_to_speaking()
+                
+                # Stream audio
+                async for chunk in self.tts.stream(text):
+                    await self.output_queue.put({"event": "audio", "data": chunk})
+                
+                # Signal local completion (frontend will send tts_complete)
+                self.tts_queue.task_done()
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"TTS worker error: {e}")
     
     def _enter_wake_word_with_cooldown(self):
         """
@@ -146,9 +184,164 @@ Examples:
         self.state = "SPEAKING"
         self.tts_playing = True
     
+    async def speak(self, text: str):
+        """Enqueue text for TTS"""
+        await self.tts_queue.put(text)
+
+    async def stop_speaking(self):
+        """Stop current TTS and clear pending speech"""
+        if self.tts_playing:
+            self.tts.stop()
+            self.tts_playing = False
+            
+            # Clear queues
+            while not self.tts_queue.empty():
+                try:
+                    self.tts_queue.get_nowait()
+                    self.tts_queue.task_done()
+                except asyncio.QueueEmpty:
+                    break
+            
+            # Notify frontend of interruption
+            await self.output_queue.put({"event": "tts_interrupted"})
+            await self.output_queue.put({"event": "listening"})
+            logger.info("🛑 Stopped speaking (queues cleared)")
+
+    async def handle_audio_chunk(self, chunk: bytes):
+        """
+        Process incoming audio chunk (Full Duplex).
+        Non-blocking: Buffers audio and spawns background tasks for processing.
+        """
+        # Global barge-in check
+        if self.state == "SPEAKING" or self.tts_playing:
+            if self.stt.vad.is_user_speaking(chunk, threshold=0.7):
+                await self.stop_speaking()
+                self._switch_to_listening()
+                return
+
+        # ========== WAKE_WORD STATE ==========
+        if self.state == "WAKE_WORD":
+            if time.time() < self.wake_word_cooldown_until:
+                return
+
+            if self.wake_word.detect(chunk):
+                logger.info("🎤 Wake word detected")
+                await self.output_queue.put({"event": "wake_word_detected"})
+                await self.speak(self.WAKE_WORD_RESPONSE)
+        
+        # ========== LISTENING STATE ==========
+        elif self.state == "LISTENING":
+            # Idle timeout
+            if time.time() - self.last_activity_time > self.IDLE_TIMEOUT_SEC:
+                self._enter_wake_word_with_cooldown()
+                await self.output_queue.put({"event": "idle_timeout"})
+                return
+
+            self.stt.add_chunk(chunk)
+            
+            if self.stt.vad.speech_ended(chunk):
+                self.state = "PROCESSING"
+                self.last_activity_time = time.time()
+                
+                # Transcribe
+                transcript = self.stt.transcribe()
+                self.stt.clear_buffer()
+                
+                if transcript:
+                    await self.output_queue.put({"event": "transcript", "text": transcript})
+                    # Spawn background task for processing
+                    asyncio.create_task(self._process_transcript(transcript))
+                else:
+                    self._enter_wake_word_with_cooldown()
+                    await self.output_queue.put({"event": "error", "message": "No speech detected"})
+                    
+            elif self.stt.vad.is_speaking:
+                self.last_activity_time = time.time()
+
+    async def _process_transcript(self, transcript: str):
+        """Process transcribed text (LLM/Agent) in background"""
+        try:
+            # Check for pause command
+            if self._is_pause_command(transcript):
+                response = "Pausing. Say 'Hey Groovi' when you're ready to continue."
+                await self.speak(response)
+                self._enter_wake_word_with_cooldown()
+                return
+
+            # Chat with LLM
+            response = self._chat_with_llm(transcript)
+            
+            # Check for music intent
+            if response.startswith("[MUSIC]"):
+                filler_response = response.replace("[MUSIC]", "").strip()
+                
+                # Add to history
+                self.conversation_history.append({"role": "user", "content": transcript})
+                self.conversation_history.append({"role": "assistant", "content": filler_response})
+                
+                await self.output_queue.put({"event": "agent_started"})
+                await self.speak(filler_response)
+                
+                # Run Music Agent
+                if self.music_agent:
+                    context = self._get_context_for_agent()
+                    query = f"{context} | Current request: {transcript}" if context else transcript
+                    
+                    try:
+                        logger.info(f"🎵 Starting music agent: {query[:50]}...")
+                        result = await self.music_agent.run(query)
+                        
+                        if result and result.get("tracks"):
+                            # Success
+                            tracks = result["tracks"]
+                            summary = result.get("summary", "")
+                            
+                            song_names = [f"{t['name']} by {t['artist']}" for t in tracks[:3]]
+                            history_entry = f"{summary} Tracks: {', '.join(song_names)}"
+                            self.conversation_history.append({"role": "assistant", "content": history_entry})
+                            
+                            # Send results
+                            await self.output_queue.put({
+                                "event": "songs",
+                                "mood_analysis": result.get("mood_analysis"),
+                                "songs": tracks
+                            })
+                            
+                            self._enter_wake_word_with_cooldown()
+                            await self.output_queue.put({"event": "music_playing"})
+                            return
+                            
+                        elif result and result.get("error"):
+                             logger.warning(f"Music agent error: {result['error']}")
+                             response = "I had trouble searching Spotify. Try clicking the button instead!"
+                        else:
+                             response = "Sorry, I couldn't find songs for that."
+                             
+                    except Exception as e:
+                        logger.error(f"Music agent exception: {e}")
+                        response = "Something went wrong while searching."
+                else:
+                     response = "Music search isn't available right now."
+                
+                # Speak fallback/result response if we didn't return early
+                await self.speak(response)
+                
+            else:
+                # Normal chat response
+                await self.speak(response)
+                
+        except Exception as e:
+            logger.error(f"Error processing transcript: {e}")
+            await self.speak("Sorry, something went wrong.")
+
     def cleanup(self):
         """Clean up all models and free memory"""
         logger.info("🧹 Cleaning up VoiceAssistant...")
+        
+        # Cancel background tasks
+        if self.tts_task:
+            self.tts_task.cancel()
+            self.tts_task = None
         
         # Stop TTS if speaking
         if hasattr(self, 'tts') and self.tts:
@@ -318,15 +511,19 @@ Examples:
                         if tracks:
                             # Success! Add music result to history
                             song_names = [f"{t['name']} by {t['artist']}" for t in tracks[:3]]
-                            history_entry = f"{summary} Tracks: {', '.join(song_names)}"
+                            mood_analysis = result.get("mood_analysis", {
+                                "category": "neutral",
+                                "description": summary
+                            })
+                            history_entry = f"{mood_analysis['description']} Tracks: {', '.join(song_names)}"
                             self.conversation_history.append({
                                 "role": "assistant",
                                 "content": history_entry
                             })
-                            # Send songs to frontend
+                            # Send songs with mood_analysis to frontend
                             yield {
                                 "event": "songs",
-                                "summary": summary,
+                                "mood_analysis": mood_analysis,
                                 "songs": tracks
                             }
                             
@@ -507,15 +704,11 @@ Examples:
         # Fallback: simple hardcoded response
         return "Perfect! Searching for music now."
     
-    async def handle_message(self, message: dict) -> AsyncGenerator[dict, None]:
+    async def handle_message(self, message: dict):
         """
         Handle JSON messages from frontend (e.g., tts_complete callback).
-        
         Args:
             message: Parsed JSON message from frontend
-            
-        Yields:
-            Events to send back to frontend
         """
         event_type = message.get("event")
         
@@ -525,7 +718,7 @@ Examples:
                 self.tts_playing = False
                 self._switch_to_listening()
                 logger.info("🔊 Frontend TTS playback complete → LISTENING")
-                yield {"event": "listening"}
+                await self.output_queue.put({"event": "listening"})
             else:
                 logger.warning(f"Received tts_complete in unexpected state: {self.state}")
         else:
