@@ -1,11 +1,12 @@
 /**
- * AIOrb - Animated voice AI-style orb button
+ * AIOrb - Premium Smooth Gradient Voice AI Orb
+ * Seamless glowing design with soft animations
  * 
  * States:
- * - idle: Subtle glowing orb, click to record
- * - recording: Pulsing with ripple effect
- * - thinking: Expanded with flowing gradient animation
- * - complete: Shrink back with success pulse
+ * - idle: Gentle purple glow
+ * - recording: Purple-to-pink gradient with outer glow
+ * - thinking: Expanded with flowing radial gradient
+ * - complete: Green success glow
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -37,66 +38,110 @@ export function AIOrb({ state, onClick, disabled = false, theme = 'dark' }: AIOr
     const stateClass = `state-${state}`
 
     return (
-        <div className="flex flex-col items-center gap-4">
+        <div className="flex flex-col items-center gap-6">
             {/* Main Orb Container */}
-            <button
-                onClick={onClick}
-                disabled={disabled || state === 'thinking'}
-                className={`ai-orb-container ${stateClass} w-24 h-24 relative group focus:outline-none`}
-                aria-label={
-                    state === 'idle' ? 'Click to start recording' :
-                        state === 'recording' ? 'Recording... click to stop' :
-                            state === 'thinking' ? 'AI is thinking...' :
-                                'Processing complete'
-                }
-            >
-                {/* Layer 1: Core Blob */}
-                <div className="orb-layer-1 absolute inset-0 rounded-full transition-all duration-700" />
+            <div className="orb-wrapper">
+                <button
+                    onClick={onClick}
+                    disabled={disabled || state === 'thinking'}
+                    className={`ai-orb-container ${stateClass} relative group focus:outline-none`}
+                    aria-label={
+                        state === 'idle' ? 'Click to start recording' :
+                            state === 'recording' ? 'Recording... click to stop' :
+                                state === 'thinking' ? 'AI is thinking...' :
+                                    'Processing complete'
+                    }
+                >
+                    {/* SVG Gooey Filter */}
+                    <svg style={{ position: 'absolute', width: 0, height: 0 }}>
+                        <defs>
+                            <filter id="gooey">
+                                <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur" />
+                                <feColorMatrix 
+                                    in="blur"
+                                    values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" 
+                                    result="gooey"
+                                />
+                                <feComposite in="SourceGraphic" in2="gooey" operator="atop" />
+                            </filter>
+                        </defs>
+                    </svg>
 
-                {/* Layer 2: Accent Swirl (Visible in Thinking/Recording) */}
-                <div className="orb-layer-2 absolute inset-0 rounded-full transition-all duration-700" />
+                    {/* Border Glow Ring */}
+                    <div className="orb-border-ring" />
 
-                {/* Layer 3: Highlight (Visible in Thinking) */}
-                <div className="orb-layer-3 absolute inset-0 rounded-full transition-all duration-700" />
+                    {/* Outer Glow Aura */}
+                    <div className="orb-outer-glow" />
+                    
+                    {/* Main Gradient Orb with Gooey Effect */}
+                    <div className="orb-main">
+                        {/* Morphing Blob Balls */}
+                        <div className="orb-blob-container">
+                            <div className="orb-blob orb-blob-1" />
+                            <div className="orb-blob orb-blob-2" />
+                            <div className="orb-blob orb-blob-3" />
+                        </div>
+                        
+                        {/* Soft Inner Glow */}
+                        <div className="orb-inner-glow" />
+                        
+                        {/* Center White Glow */}
+                        <div className="orb-center-glow" />
+                    </div>
 
-                {/* Ripple for recording */}
-                {showRipple && (
-                    <div className="absolute inset-0 border-2 border-red-500/30 rounded-full animate-ping" />
-                )}
-
-                {/* Glass Reflection Overlay */}
-                <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-white/20 to-transparent pointer-events-none" />
-
-                {/* Center Icon/Content */}
-                <div className="relative z-10 flex items-center justify-center w-full h-full text-white drop-shadow-lg transition-transform duration-300">
-                    {state === 'idle' && (
-                        <svg className={`w-8 h-8 opacity-90 transition-transform group-hover:scale-110 duration-300 
-                                       ${theme === 'light' ? 'text-white' : 'text-white'}`}
-                            fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-                        </svg>
+                    {/* Subtle Pulse Rings (Recording State) */}
+                    {showRipple && (
+                        <>
+                            <div className="orb-pulse-ring pulse-ring-1" />
+                            <div className="orb-pulse-ring pulse-ring-2" />
+                            <div className="orb-pulse-ring pulse-ring-3" />
+                        </>
                     )}
 
-                    {state === 'recording' && (
-                        <div className="w-6 h-6 bg-white rounded-md animate-pulse shadow-lg shadow-red-500/50" />
-                    )}
+                    {/* Icon Container */}
+                    <div className="orb-icon-container">
+                        {state === 'idle' && (
+                            <svg 
+                                className="orb-icon"
+                                fill="currentColor" 
+                                viewBox="0 0 24 24"
+                            >
+                                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+                            </svg>
+                        )}
 
-                    {state === 'thinking' && (
-                        <span className="text-3xl animate-pulse">✨</span>
-                    )}
+                        {state === 'recording' && (
+                            <svg 
+                                className="orb-icon"
+                                fill="currentColor" 
+                                viewBox="0 0 24 24"
+                            >
+                                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+                            </svg>
+                        )}
 
-                    {state === 'complete' && (
-                        <svg className="w-8 h-8 text-white drop-shadow-md" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                        </svg>
-                    )}
-                </div>
-            </button>
+                        {state === 'thinking' && (
+                            <span className="orb-icon orb-icon-emoji">✨</span>
+                        )}
+
+                        {state === 'complete' && (
+                            <svg 
+                                className="orb-icon"
+                                fill="currentColor" 
+                                viewBox="0 0 24 24"
+                            >
+                                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                            </svg>
+                        )}
+                    </div>
+                </button>
+            </div>
 
             {/* Label */}
-            <span className={`text-sm font-medium transition-all duration-300
-                            ${state === 'thinking' ? 'opacity-100 translate-y-0' : 'opacity-70'}
+            <span className={`orb-label
+                            ${state === 'thinking' ? 'orb-label-active' : ''}
                             ${theme === 'dark' ? 'text-zinc-300' : 'text-zinc-600'}`}>
                 {state === 'idle' && 'Tap to speak'}
                 {state === 'recording' && 'Listening...'}
