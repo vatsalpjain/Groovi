@@ -2,12 +2,13 @@
 Spotify MCP Client - Full OAuth + Playback + Playlist Support
 
 Two authentication modes:
-1. Client Credentials (sp) - For public endpoints: search, recommendations, track info
+1. Client Credentials (sp) - For public endpoints: search, track info
 2. User OAuth (user_sp) - For user-specific: playback control, playlist creation
 """
 
 import os
 import logging
+import warnings
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -99,10 +100,11 @@ class SpotifyAPI:
         """Check if user is authenticated"""
         return self.user_sp is not None
 
-    # ==================== Search & Recommendations ====================
+    # ==================== Search ====================
     
     def search_tracks(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Search for tracks on Spotify"""
+        limit = min(limit, 10)
         try:
             results = self.sp.search(q=query, type='track', limit=limit)
             return [self._format_track(item) for item in results['tracks']['items']]
@@ -110,49 +112,25 @@ class SpotifyAPI:
             logger.error(f"Search error: {e}")
             return []
 
-    def get_recommendations(
-        self,
-        seed_genres: Optional[List[str]] = None,
-        seed_tracks: Optional[List[str]] = None,
-        seed_artists: Optional[List[str]] = None,
-        limit: int = 5,
-        **audio_features
-    ) -> List[Dict[str, Any]]:
-        """Get song recommendations based on seeds and audio features"""
-        try:
-            params = {'limit': limit}
-            
-            if seed_genres:
-                params['seed_genres'] = seed_genres[:5]
-            if seed_tracks:
-                params['seed_tracks'] = seed_tracks[:5]
-            if seed_artists:
-                params['seed_artists'] = seed_artists[:5]
-            
-            # Add audio features (target_valence, target_energy, etc.)
-            params.update(audio_features)
-            
-            results = self.sp.recommendations(**params)
-            return [self._format_track(item) for item in results['tracks']]
-        except Exception as e:
-            logger.error(f"Recommendations error: {e}")
-            return []
+    # ==================== DEPRECATED ENDPOINTS (Removed by Spotify Feb/Mar 2026) ====================
+
+    def get_recommendations(self, **kwargs) -> List[Dict[str, Any]]:
+        """DEPRECATED: Spotify removed GET /recommendations (Feb 2026)"""
+        warnings.warn("get_recommendations is deprecated — Spotify removed this endpoint", DeprecationWarning, stacklevel=2)
+        logger.warning("⚠️ get_recommendations called but endpoint is removed by Spotify")
+        return []
 
     def get_track_audio_features(self, track_id: str) -> Optional[Dict[str, Any]]:
-        """Get audio features for a track"""
-        try:
-            return self.sp.audio_features([track_id])[0]
-        except Exception as e:
-            logger.error(f"Audio features error: {e}")
-            return None
+        """DEPRECATED: Spotify restricted GET /audio-features (403, Feb 2026)"""
+        warnings.warn("get_track_audio_features is deprecated — Spotify restricted this endpoint", DeprecationWarning, stacklevel=2)
+        logger.warning("⚠️ get_track_audio_features called but endpoint is restricted by Spotify")
+        return None
 
     def get_available_genre_seeds(self) -> List[str]:
-        """Get list of available genre seeds"""
-        try:
-            return self.sp.recommendation_genre_seeds()['genres']
-        except Exception as e:
-            logger.error(f"Genre seeds error: {e}")
-            return []
+        """DEPRECATED: Spotify removed GET /recommendations/available-genre-seeds (Feb 2026)"""
+        warnings.warn("get_available_genre_seeds is deprecated — Spotify removed this endpoint", DeprecationWarning, stacklevel=2)
+        logger.warning("⚠️ get_available_genre_seeds called but endpoint is removed by Spotify")
+        return []
 
     def get_track_by_id(self, track_id: str) -> Optional[Dict[str, Any]]:
         """Get detailed track information"""
@@ -186,30 +164,20 @@ class SpotifyAPI:
             return None
 
     def get_artist_top_tracks(self, artist_id: str, country: str = 'US') -> List[Dict[str, Any]]:
-        """Get top tracks of an artist"""
-        try:
-            results = self.sp.artist_top_tracks(artist_id, country=country)
-            return [self._format_track(track) for track in results['tracks']]
-        except Exception as e:
-            logger.error(f"Artist top tracks error: {e}")
-            return []
+        """DEPRECATED: Spotify removing GET /artists/{id}/top-tracks (March 9, 2026)"""
+        warnings.warn("get_artist_top_tracks is deprecated — Spotify removing this endpoint March 9, 2026", DeprecationWarning, stacklevel=2)
+        logger.warning("⚠️ get_artist_top_tracks called but endpoint is being removed by Spotify")
+        return []
 
     def get_related_artists(self, artist_id: str) -> List[Dict[str, Any]]:
-        """Find artists similar to the given artist"""
-        try:
-            results = self.sp.artist_related_artists(artist_id)
-            return [{
-                'id': artist['id'],
-                'name': artist['name'],
-                'genres': artist.get('genres', []),
-                'popularity': artist.get('popularity', 0)
-            } for artist in results['artists'][:10]]  # Limit to top 10
-        except Exception as e:
-            logger.error(f"Related artists error: {e}")
-            return []
+        """DEPRECATED: Spotify removed GET /artists/{id}/related-artists (Feb 2026)"""
+        warnings.warn("get_related_artists is deprecated — Spotify removed this endpoint", DeprecationWarning, stacklevel=2)
+        logger.warning("⚠️ get_related_artists called but endpoint is removed by Spotify")
+        return []
 
     def search_playlists(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
         """Search for playlists by query"""
+        limit = min(limit, 10)
         try:
             results = self.sp.search(q=query, type='playlist', limit=limit)
             return [{
@@ -238,7 +206,8 @@ class SpotifyAPI:
             return []
 
     def search_by_genre(self, genre: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Search tracks by genre"""
+        """Search tracks by genre using Spotify search filter"""
+        limit = min(limit, 10)
         try:
             # Spotify search supports genre: filter
             results = self.sp.search(q=f'genre:"{genre}"', type='track', limit=limit)
@@ -248,23 +217,10 @@ class SpotifyAPI:
             return []
 
     def get_new_releases(self, country: str = 'US', limit: int = 10) -> List[Dict[str, Any]]:
-        """Get new album releases"""
-        try:
-            results = self.sp.new_releases(country=country, limit=limit)
-            albums = []
-            for album in results['albums']['items']:
-                albums.append({
-                    'id': album['id'],
-                    'name': album['name'],
-                    'artist': album['artists'][0]['name'] if album['artists'] else 'Unknown',
-                    'release_date': album.get('release_date', ''),
-                    'total_tracks': album.get('total_tracks', 0),
-                    'image': album['images'][0]['url'] if album.get('images') else None
-                })
-            return albums
-        except Exception as e:
-            logger.error(f"Get new releases error: {e}")
-            return []
+        """DEPRECATED: Spotify removing GET /browse/new-releases (March 9, 2026)"""
+        warnings.warn("get_new_releases is deprecated — Spotify removing this endpoint March 9, 2026", DeprecationWarning, stacklevel=2)
+        logger.warning("⚠️ get_new_releases called but endpoint is being removed by Spotify")
+        return []
 
     # ==================== Playback Control ====================
     
@@ -433,8 +389,7 @@ class SpotifyAPI:
             'external_url': track['external_urls']['spotify'],
             'album_art': track['album']['images'][0]['url'] if track['album']['images'] else None,
             'preview_url': track.get('preview_url'),
-            'duration_ms': track.get('duration_ms'),
-            'popularity': track.get('popularity')
+            'duration_ms': track.get('duration_ms')
         }
 
 

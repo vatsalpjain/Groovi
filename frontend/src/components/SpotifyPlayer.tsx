@@ -496,8 +496,8 @@ export function SpotifyPlayer({ trackUris, isAuthenticated, startTrackIndex = 0,
         if (!accessTokenRef.current || !currentTrack?.id) return
         try {
             if (isLiked) {
-                // Unlike - DELETE from saved tracks
-                const response = await fetch(`https://api.spotify.com/v1/me/tracks?ids=${currentTrack.id}`, {
+                // Unlike - DELETE from library (updated: /me/tracks removed, use /me/library)
+                const response = await fetch(`https://api.spotify.com/v1/me/library?ids=${currentTrack.id}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${accessTokenRef.current}` }
                 })
@@ -506,8 +506,8 @@ export function SpotifyPlayer({ trackUris, isAuthenticated, startTrackIndex = 0,
                     console.log('💔 Removed from library:', currentTrack.name)
                 }
             } else {
-                // Like - PUT to saved tracks
-                const response = await fetch(`https://api.spotify.com/v1/me/tracks?ids=${currentTrack.id}`, {
+                // Like - PUT to library (updated: /me/tracks removed, use /me/library)
+                const response = await fetch(`https://api.spotify.com/v1/me/library?ids=${currentTrack.id}`, {
                     method: 'PUT',
                     headers: { 'Authorization': `Bearer ${accessTokenRef.current}` }
                 })
@@ -529,7 +529,8 @@ export function SpotifyPlayer({ trackUris, isAuthenticated, startTrackIndex = 0,
                 return
             }
             try {
-                const response = await fetch(`https://api.spotify.com/v1/me/tracks/contains?ids=${currentTrack.id}`, {
+                // Check if liked (updated: /me/tracks/contains removed, use /me/library/contains)
+                const response = await fetch(`https://api.spotify.com/v1/me/library/contains?ids=${currentTrack.id}`, {
                     headers: { 'Authorization': `Bearer ${accessTokenRef.current}` }
                 })
                 if (response.ok) {

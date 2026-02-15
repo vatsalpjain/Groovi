@@ -5,11 +5,15 @@ Uses Groq LLM with function calling to explore Spotify's catalog
 via MCP (Model Context Protocol) and curate personalized song recommendations.
 
 The agent can:
-1. Search for artists, playlists, and tracks
-2. Explore related artists and top tracks
-3. Browse by genre and new releases
+1. Search for tracks by keyword, mood, or activity
+2. Find artists and explore playlists
+3. Browse curated playlists for track discovery
 4. Iterate to refine results
 5. Curate final playlist with reasoning
+
+NOTE: Several Spotify endpoints removed Feb/Mar 2026:
+- get_artist_top_tracks, get_related_artists, get_genres, get_new_releases, get_track_features
+- Agent now relies on search_tracks, search_artist, search_playlists, get_playlist_tracks
 
 Falls back to VADER sentiment analysis if Groq API fails completely.
 """
@@ -27,6 +31,7 @@ logger = logging.getLogger(__name__)
 MAX_ITERATIONS = 5
 
 # Tool definitions for Groq function calling
+# Only includes tools backed by working Spotify endpoints (post Feb/Mar 2026 removals)
 AGENT_TOOLS = [
     {
         "type": "function",
@@ -45,41 +50,13 @@ AGENT_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "get_artist_top_tracks",
-            "description": "Get the top/popular tracks of an artist. Use after finding an artist.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "artist_id": {"type": "string", "description": "Spotify artist ID"}
-                },
-                "required": ["artist_id"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_related_artists",
-            "description": "Find artists similar to a given artist. Great for discovery.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "artist_id": {"type": "string", "description": "Spotify artist ID"}
-                },
-                "required": ["artist_id"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "search_tracks",
-            "description": "Search for tracks by keywords. Use for mood/activity-based queries.",
+            "description": "Search for tracks by keywords. Use for mood/activity-based queries or finding specific songs.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Search query (mood, activity, genre, etc.)"},
-                    "limit": {"type": "integer", "description": "Number of results (default 10)", "default": 10}
+                    "query": {"type": "string", "description": "Search query (mood, activity, genre, artist name, etc.)"},
+                    "limit": {"type": "integer", "description": "Number of results (max 10)", "default": 10}
                 },
                 "required": ["query"]
             }
@@ -89,12 +66,12 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "search_playlists",
-            "description": "Search for curated playlists by theme/mood/activity.",
+            "description": "Search for curated playlists by theme/mood/activity. Great for discovering tracks.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "Playlist search query"},
-                    "limit": {"type": "integer", "description": "Number of results (default 5)", "default": 5}
+                    "limit": {"type": "integer", "description": "Number of results (max 10)", "default": 5}
                 },
                 "required": ["query"]
             }
@@ -104,59 +81,20 @@ AGENT_TOOLS = [
         "type": "function",
         "function": {
             "name": "get_playlist_tracks",
-            "description": "Get tracks from a specific playlist.",
+            "description": "Get tracks from a specific playlist. Use after finding playlists.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "playlist_id": {"type": "string", "description": "Spotify playlist ID"},
-                    "limit": {"type": "integer", "description": "Number of tracks (default 20)", "default": 20}
+                    "limit": {"type": "integer", "description": "Number of tracks (default 20)", "default": 10}
                 },
                 "required": ["playlist_id"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_by_genre",
-            "description": "Search tracks by genre. Use when user asks for a specific genre.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "genre": {"type": "string", "description": "Genre name (e.g., rock, jazz, hip-hop)"},
-                    "limit": {"type": "integer", "description": "Number of results (default 10)", "default": 10}
-                },
-                "required": ["genre"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_genres",
-            "description": "Get list of all available Spotify genres. Use to discover valid genre names.",
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_new_releases",
-            "description": "Get recently released albums. Use when user wants fresh/new music.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "limit": {"type": "integer", "description": "Number of albums (default 10)", "default": 10}
-                }
             }
         }
     }
 ]
 
-# System prompt for the agent - Strict and explicit to prevent function calling errors
+# System prompt for the agent - Updated for Spotify's Feb/Mar 2026 API changes
 SYSTEM_PROMPT = """You are a music curation AI with access to Spotify tools. Find 10 PERFECT songs matching the user's request.
 
 ⚠️ CRITICAL FUNCTION CALLING RULES - READ FIRST:
@@ -175,14 +113,16 @@ SYSTEM_PROMPT = """You are a music curation AI with access to Spotify tools. Fin
    ✅ CORRECT: {"query": "happy songs"}
    ❌ WRONG: {'query': 'happy songs'}
 
-AVAILABLE TOOLS AND THEIR ARGUMENTS:
+AVAILABLE TOOLS (only 4 tools exist):
 
 Tool: search_tracks
 Arguments: {"query": "song or mood keywords", "limit": 10}
 Examples:
   {"query": "happy upbeat songs", "limit": 10}
   {"query": "kamariya", "limit": 1}
+  {"query": "Arctic Monkeys", "limit": 10}
   {"query": "Indian dance music", "limit": 10}
+  {"query": "rock classic hits", "limit": 10}
 
 Tool: search_artist
 Arguments: {"name": "artist name"}
@@ -190,43 +130,24 @@ Examples:
   {"name": "Arctic Monkeys"}
   {"name": "Darshan Raval"}
 
-Tool: get_artist_top_tracks
-Arguments: {"artist_id": "spotify_artist_id"}
-Example: {"artist_id": "7Ln80lUS6He07XvHI8qqHH"}
-
-Tool: get_related_artists
-Arguments: {"artist_id": "spotify_artist_id"}
-Example: {"artist_id": "7Ln80lUS6He07XvHI8qqHH"}
-
 Tool: search_playlists
 Arguments: {"query": "playlist theme", "limit": 5}
-Example: {"query": "workout motivation", "limit": 5}
+Examples:
+  {"query": "workout motivation", "limit": 5}
+  {"query": "chill lofi beats", "limit": 5}
 
 Tool: get_playlist_tracks
-Arguments: {"playlist_id": "spotify_playlist_id", "limit": 20}
-Example: {"playlist_id": "37i9dQZF1DXcBWIGoYBM5M", "limit": 20}
-
-Tool: search_by_genre
-Arguments: {"genre": "genre_name", "limit": 10}
-Examples:
-  {"genre": "rock", "limit": 10}
-  {"genre": "bollywood", "limit": 10}
-
-Tool: get_genres
-Arguments: {}
-
-Tool: get_new_releases
-Arguments: {"limit": 10}
-Example: {"limit": 10}
+Arguments: {"playlist_id": "spotify_playlist_id", "limit": 10}
+Example: {"playlist_id": "37i9dQZF1DXcBWIGoYBM5M", "limit": 10}
 
 UNDERSTANDING USER INTENT:
 
 1. Specific Song Name → search_tracks with exact song name, limit: 1-5
-2. Specific Artist → search_artist, then get_artist_top_tracks
-3. Mood/Vibe/Activity → search_tracks with descriptive keywords, limit: 10-20
-4. Genre Request → search_by_genre
-5. Discovery/Similar → get_related_artists, explore their tracks
-6. New Music → get_new_releases
+2. Specific Artist → search_tracks with "artist name songs" or search_artist to confirm, then search_tracks
+3. Mood/Vibe/Activity → search_tracks with descriptive keywords, limit: 10
+4. Genre Request → search_tracks with genre keywords (e.g., "rock hits", "jazz classics")
+5. Discovery/Similar → search_playlists for themed playlists, then get_playlist_tracks
+6. New Music → search_playlists for "new music" or "latest hits"
 
 YOUR WORKFLOW:
 
@@ -234,7 +155,7 @@ PHASE 1 - EXPLORATION (Iterations 1-4):
 - Call 2-4 tools to gather diverse track options
 - Collect at least 15-20 tracks total
 - Match user's mood, energy level, and intent
-- When artist mentioned, use search_artist first to get their ID
+- Use search_playlists + get_playlist_tracks for broader discovery
 
 PHASE 2 - FINAL RESPONSE (Last iteration):
 Return ONLY this exact JSON structure (no extra text before or after):
@@ -254,11 +175,12 @@ SEARCH STRATEGY:
 - Mix popular hits with hidden gems for diversity
 - Match energy level: upbeat/calm/energetic/sad/romantic
 - Quality over quantity: 10 perfect tracks beats 20 mediocre ones
+- For artist requests: search_tracks with "[artist name]" directly
 
 TYPE SAFETY REMINDER:
-- limit parameter = INTEGER → 1, 5, 10, 20 (NOT "1", "5", "10", "20")
-- artist_id/playlist_id/track_id = STRING → "7Ln80lUS6He07XvHI8qqHH"
-- name/query/genre = STRING → "Taylor Swift", "happy songs", "rock"
+- limit parameter = INTEGER → 1, 5, 10 (NOT "1", "5", "10")
+- playlist_id = STRING → "37i9dQZF1DXcBWIGoYBM5M"
+- name/query = STRING → "Taylor Swift", "happy songs"
 """
 
 
@@ -450,14 +372,14 @@ Pick the 10 BEST tracks from what you've found and return ONLY this JSON:
 Here are some tracks you found: {json.dumps(all_tracks[:20])}"""
                     })
                     
-                    response = self.groq.chat.completions.create(
+                    response = await self.groq.chat.completions.create(
                         model="llama-3.3-70b-versatile",
                         messages=messages,
                         temperature=0.7,
                         max_tokens=2000
                     )
                 else:
-                    response = self.groq.chat.completions.create(
+                    response = await self.groq.chat.completions.create(
                         model="llama-3.3-70b-versatile",
                         messages=messages,
                         tools=AGENT_TOOLS,
@@ -676,7 +598,7 @@ Return ONLY valid JSON:
 }}"""
         
         try:
-            response = self.groq.chat.completions.create(
+            response = await self.groq.chat.completions.create(
                 model="llama-3.1-8b-instant",  # Fast model
                 messages=[
                     {"role": "system", "content": "You are a music analysis expert. Always return valid JSON."},
@@ -731,8 +653,16 @@ Return ONLY valid JSON:
                 track_lookup[uri] = track
         
         enriched = []
+        seen_uris = set()
+        
         for agent_track in agent_tracks:
             uri = agent_track.get("uri", "")
+            
+            # Deduplicate by URI
+            if uri and uri in seen_uris:
+                continue
+            if uri:
+                seen_uris.add(uri)
             
             # Try to find matching track in collected data
             raw_track = track_lookup.get(uri, {})

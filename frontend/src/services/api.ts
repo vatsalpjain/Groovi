@@ -95,7 +95,7 @@ export async function getRecommendations(text: string): Promise<RecommendationRe
       },
       body: JSON.stringify({ text: text.trim() }),
     },
-    30000 // 30 second timeout for AI + Spotify calls
+    60000 // 60 second timeout to handle API rate limit
   );
 
   return handleResponse<RecommendationResponse>(response);

@@ -236,11 +236,11 @@ async def recommend_songs(text_input: TextInput):
     
     # Import agent here to avoid circular imports
     from services.music_agent import MusicRecommendationAgent
-    from groq import Groq
+    from groq import AsyncGroq
     
     try:
         # Initialize Groq client and agent
-        groq_client = Groq(api_key=settings.GROQ_API_KEY)
+        groq_client = AsyncGroq(api_key=settings.GROQ_API_KEY)
         agent = MusicRecommendationAgent(groq_client)
         
         # Run the agent (handles all fallback internally)
@@ -358,7 +358,6 @@ async def synthesize_speech(request: TTSRequest):
 def start_server():
     logger.info("🎵 Starting Groovi Backend Server...")
     logger.info("📡 Server: http://localhost:5000")
-    logger.info("📚 API Docs: http://localhost:5000/docs")
     logger.info("� MCP Transport: stdio")
     
     uvicorn.run(

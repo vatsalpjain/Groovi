@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { getRecommendations, ApiError } from './services/api'
 import { useTheme } from './hooks/useTheme'
 import { useSmoothScroll } from './hooks/useSmoothScroll'
@@ -37,6 +37,9 @@ function App() {
   const [currentTrackId, setCurrentTrackId] = useState<string | null>(null)
   const [thoughtProcess, setThoughtProcess] = useState<ThoughtStep[]>([])
   const [agentIterations, setAgentIterations] = useState(0)
+
+  // Track playing audio for interruption
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null)
 
   // Voice mode toggle
   // voiceMode is different from voiceReady. voiceMode is when the user clicks the voice button to enable voice mode. voiceReady is when the backend models are loaded and ready to use.
@@ -78,7 +81,12 @@ function App() {
       } else if (event.event === 'response') {
         // Agent responded
         setOrbState('complete')
-      } else if (event.event === 'interrupted') {
+      } else if (event.event === 'tts_interrupted' || event.event === 'interrupted') {
+        // User interrupted - stop audio immediately
+        if (currentAudioRef.current) {
+          currentAudioRef.current.pause()
+          currentAudioRef.current = null
+        }
         setOrbState('idle')
       } else if (event.event === 'voice_mode_stop') {
         // User said "pause" or "stop" - switch to click mode
@@ -91,15 +99,30 @@ function App() {
       }
     },
     onAudio: (audioBlob) => {
+      // Stop any previous audio first
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause()
+        currentAudioRef.current = null
+      }
+
       // Play TTS audio (WAV format from backend)
       const wavBlob = new Blob([audioBlob], { type: 'audio/wav' })
       const url = URL.createObjectURL(wavBlob)
       const audio = new Audio(url)
+
+      // Store reference so we can stop it later
+      currentAudioRef.current = audio
+
       audio.play().catch(err => {
         console.error('Audio playback error:', err)
       })
       // Cleanup URL after playback
-      audio.onended = () => URL.revokeObjectURL(url)
+      audio.onended = () => {
+        URL.revokeObjectURL(url)
+        if (currentAudioRef.current === audio) {
+          currentAudioRef.current = null
+        }
+      }
     },
     onError: (error) => {
       console.error('Voice mode error:', error)
