@@ -13,6 +13,7 @@ import { SpotifyAuth } from './components/SpotifyAuth'
 import { SpotifyPlayer } from './components/SpotifyPlayer'
 import { SpotifyEmbed } from './components/SpotifyEmbed'
 import { ThoughtProcess } from './components/ThoughtProcess'
+import { VoiceChatBubbles, type ChatMessage } from './components/VoiceChatBubbles'
 import type { MoodAnalysis, Song, ThoughtStep } from './types'
 
 // Backend API URL - should match the backend server port (5000)
@@ -41,6 +42,13 @@ function App() {
   // Track playing audio for interruption
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
 
+  // Ref for sendMessage — needed inside onAudio callback (defined before hook returns)
+  const sendMessageRef = useRef<(msg: object) => void>(() => { })
+
+  // Voice chat bubble messages — tracks conversation in voice mode
+  const [voiceChatMessages, setVoiceChatMessages] = useState<ChatMessage[]>([])
+  const messageIdRef = useRef(0) // Auto-incrementing ID for unique keys
+
   // Voice mode toggle
   // voiceMode is different from voiceReady. voiceMode is when the user clicks the voice button to enable voice mode. voiceReady is when the backend models are loaded and ready to use.
   const [voiceMode, setVoiceMode] = useState(false) // True when backend models are loaded
@@ -51,7 +59,7 @@ function App() {
   const [orbState, setOrbState] = useState<OrbState>('idle')
 
   // Voice WebSocket connection
-  const { isConnected, connect, disconnect, sendAudio } = useVoiceWebSocket({
+  const { isConnected, connect, disconnect, sendAudio, sendMessage } = useVoiceWebSocket({
     onMessage: (event) => {
       console.log('Voice event:', event)
 
@@ -71,6 +79,12 @@ function App() {
       } else if (event.event === 'transcript') {
         setMoodText(event.text)
         setOrbState('thinking')
+        // Add user transcript to voice chat bubbles
+        setVoiceChatMessages(prev => [...prev, {
+          role: 'user',
+          text: event.text,
+          id: ++messageIdRef.current
+        }])
       } else if (event.event === 'songs') {
         // Music agent found songs - display in UI with mood analysis
         setSongs(event.songs)
@@ -78,6 +92,13 @@ function App() {
         if (event.mood_analysis) {
           setMoodAnalysis(event.mood_analysis)
         }
+      } else if (event.event === 'response_text') {
+        // AI response text — add to voice chat bubbles
+        setVoiceChatMessages(prev => [...prev, {
+          role: 'assistant',
+          text: event.text,
+          id: ++messageIdRef.current
+        }])
       } else if (event.event === 'response') {
         // Agent responded
         setOrbState('complete')
@@ -122,6 +143,8 @@ function App() {
         if (currentAudioRef.current === audio) {
           currentAudioRef.current = null
         }
+        // Notify backend that TTS playback finished
+        sendMessageRef.current({ event: 'tts_complete' })
       }
     },
     onError: (error) => {
@@ -142,6 +165,9 @@ function App() {
       }
     }
   })
+
+  // Keep sendMessage ref updated for use in onAudio callback
+  sendMessageRef.current = sendMessage
 
   // Derive orb state from recording state and loading state (Click Mode only)
   useEffect(() => {
@@ -183,9 +209,10 @@ function App() {
       connect()
       setOrbState('thinking') // Show loading state while models load
     } else {
-      // Disconnect WebSocket
+      // Disconnect WebSocket and clear voice chat history
       disconnect()
       setOrbState('idle')
+      setVoiceChatMessages([])
     }
   }, [voiceMode, connect, disconnect])
 
@@ -404,6 +431,14 @@ function App() {
               )}
             />
           </div>
+
+          {/* Voice Chat Bubbles — only visible in voice mode */}
+          {voiceMode && (
+            <VoiceChatBubbles
+              messages={voiceChatMessages}
+              theme={theme}
+            />
+          )}
 
           {/* Glassmorphic Input Card */}
           <div className={`p-6 rounded-3xl backdrop-blur-xl transition-all duration-300

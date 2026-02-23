@@ -162,6 +162,7 @@ Examples:
         false triggers from residual TTS audio or noise.
         """
         self.state = "WAKE_WORD"
+        self.tts_playing = False  # Reset TTS flag to prevent false barge-in triggers
         self.stt.clear_buffer()
         self.wake_word.reset()  # Clear internal wake word model state
         # Set cooldown - ignore wake word detections for a brief period
@@ -271,6 +272,8 @@ Examples:
             # Check for pause command
             if self._is_pause_command(transcript):
                 response = "Pausing. Say 'Hey Groovi' when you're ready to continue."
+                # Send AI text to frontend for chat bubble display
+                await self.output_queue.put({"event": "response_text", "text": response})
                 await self.speak(response)
                 self._enter_wake_word_with_cooldown()
                 return
@@ -287,6 +290,9 @@ Examples:
                 self.conversation_history.append({"role": "assistant", "content": filler_response})
                 
                 await self.output_queue.put({"event": "agent_started"})
+                
+                # Send filler text to frontend for chat bubble display
+                await self.output_queue.put({"event": "response_text", "text": filler_response})
                 
                 # Set flag so we don't switch to LISTENING when filler TTS ends
                 self.is_fetching_music = True
@@ -340,10 +346,14 @@ Examples:
                      self.is_fetching_music = False
                      response = "Music search isn't available right now."
                 
+                # Send AI text to frontend for chat bubble display
+                await self.output_queue.put({"event": "response_text", "text": response})
                 # Speak fallback/result response if we didn't return early
                 await self.speak(response)
                 
             else:
+                # Send AI text to frontend for chat bubble display
+                await self.output_queue.put({"event": "response_text", "text": response})
                 # Normal chat response
                 await self.speak(response)
                 

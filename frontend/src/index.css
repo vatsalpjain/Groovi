@@ -722,6 +722,24 @@ html:not(.dark) .state-complete .orb-blob {
   );
 }
 
+/* ============================================
+   VOICE CHAT BUBBLES - Entrance animation
+   ============================================ */
+
+/* Slide-up fade-in for new chat bubbles */
+@keyframes bubbleSlideIn {
+  from {
+    transform: translateY(12px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.voice-bubble-enter {
+  animation: bubbleSlideIn 0.35s ease-out;
+}
+
 /* Custom Scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
   height: 6px;
