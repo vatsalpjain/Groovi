@@ -67,7 +67,6 @@ export function AgentLoader() {
                 {AGENT_STEPS.map((step, index) => {
                     const isActive = index === currentStep
                     const isCompleted = completedSteps.includes(index)
-                    const isPending = index > currentStep && !isCompleted
 
                     return (
                         <div

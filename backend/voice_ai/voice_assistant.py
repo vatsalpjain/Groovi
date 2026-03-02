@@ -101,8 +101,11 @@ Examples:
         if settings.GROQ_API_KEY:
             try:
                 self.llm = AsyncGroq(api_key=settings.GROQ_API_KEY)
-                self.music_agent = MusicRecommendationAgent(self.llm)
-                logger.info("✅ Groq LLM + Music Agent initialized")
+                
+                # We defer creating the agent until queues are set up below
+                # or we can pass a lambda that calls output_queue.put
+                self.music_agent = None  
+                logger.info("✅ Groq LLM initialized")
             except Exception as e:
                 logger.warning(f"⚠️ Groq init failed: {e} - using canned responses")
         
@@ -110,10 +113,17 @@ Examples:
         self.stt = StreamingSTT()
         self.tts = StreamingTTS()
         
-        # Queues for full-duplex communication
         self.output_queue: asyncio.Queue = asyncio.Queue()
         self.tts_queue: asyncio.Queue = asyncio.Queue()
         
+        # Now that output_queue is created, initialize the Music Agent
+        if self.llm:
+            self.music_agent = MusicRecommendationAgent(
+                self.llm, 
+                on_iteration=self.output_queue.put
+            )
+            logger.info("✅ Music Agent initialized with iteration callback")
+            
         # Background tasks
         self.tts_task: asyncio.Task | None = None
         
@@ -142,7 +152,10 @@ Examples:
                 # Signal speaking start
                 self._switch_to_speaking()
                 
-                # Stream audio
+                # Notify the pipeline UI that TTS is starting.
+                await self.output_queue.put({"event": "tts_start"})
+                
+                # Stream audio chunks as binary
                 async for chunk in self.tts.stream(text):
                     await self.output_queue.put({"event": "audio", "data": chunk})
                 
@@ -289,7 +302,7 @@ Examples:
                 self.conversation_history.append({"role": "user", "content": transcript})
                 self.conversation_history.append({"role": "assistant", "content": filler_response})
                 
-                await self.output_queue.put({"event": "agent_started"})
+                await self.output_queue.put({"event": "processing"})
                 
                 # Send filler text to frontend for chat bubble display
                 await self.output_queue.put({"event": "response_text", "text": filler_response})

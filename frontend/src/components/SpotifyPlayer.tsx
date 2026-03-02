@@ -439,12 +439,7 @@ export function SpotifyPlayer({ trackUris, isAuthenticated, startTrackIndex = 0,
         onTrackChange?.(prevIndex)
     }, [player, currentIndex, onTrackChange])
 
-    // Seek to position
-    const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-        const position = Number(e.target.value)
-        setProgress(position)
-        player?.seek(position)
-    }, [player])
+
 
     // Set volume
     const handleVolume = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {

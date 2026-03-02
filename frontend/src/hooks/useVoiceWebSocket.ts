@@ -83,6 +83,9 @@ export function useVoiceWebSocket(options: UseVoiceWebSocketOptions = {}) {
           try {
             const data = JSON.parse(event.data) as VoiceEvent
             onMessageRef.current?.(data)
+            
+            // Dispatch custom event for hooks like usePipelineState to catch
+            window.dispatchEvent(new CustomEvent('voice-ws-message', { detail: data }))
           } catch (err) {
             console.error('Failed to parse WebSocket message:', err)
           }
@@ -151,5 +154,6 @@ export function useVoiceWebSocket(options: UseVoiceWebSocketOptions = {}) {
     disconnect,
     sendAudio,
     sendMessage,
+    wsRef,
   }
 }

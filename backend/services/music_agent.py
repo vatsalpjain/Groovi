@@ -187,14 +187,16 @@ TYPE SAFETY REMINDER:
 class MusicRecommendationAgent:
     """AI Agent that uses Groq + MCP tools to recommend music"""
     
-    def __init__(self, groq_client):
+    def __init__(self, groq_client, on_iteration=None):
         """
         Initialize the agent with a Groq client.
         
         Args:
             groq_client: Initialized Groq client with API key
+            on_iteration: Async callback function to emit progress events
         """
         self.groq = groq_client
+        self.on_iteration = on_iteration
         self.mcp_client: Optional[SpotifyMCPClient] = None
     
     async def _ensure_mcp_connected(self):
@@ -337,6 +339,11 @@ class MusicRecommendationAgent:
         # Collect all tracks found during search
         all_tracks = []
         
+        # Track token usage for the agent_complete event
+        total_tokens_before = 0  # Approximate: chars in raw results
+        total_tokens_after = 0   # Approximate: chars in truncated results
+        agent_start_time = __import__('time').time()
+        
         # Initialize messages with system prompt and user query
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -445,6 +452,25 @@ Here are some tracks you found: {json.dumps(all_tracks[:20])}"""
                         })
                         
                         logger.info(f"📦 Tool result: {len(str(result))} chars → {len(str(truncated_result))} chars (saved {len(str(result)) - len(str(truncated_result))} chars)")
+
+                        # Track token usage for agent_complete summary
+                        raw_chars = len(str(result))
+                        trunc_chars = len(str(truncated_result))
+                        total_tokens_before += raw_chars
+                        total_tokens_after += trunc_chars
+
+                        # Emit agent iteration event — keys must match usePipelineState.ts
+                        if self.on_iteration:
+                            import time
+                            await self.on_iteration({
+                                "event": "agent_iteration",
+                                "iteration": iteration + 1,
+                                "tool": tool_name,
+                                "args": arguments,          # was: arguments
+                                "resultCount": truncated_result.get('count', 0),  # was: result_summary
+                                "latencyMs": 0,             # was: latency_ms
+                                "timestamp": int(time.time() * 1000)
+                            })
                 
                 else:
                     # Agent returned final response (no more tool calls)
@@ -487,6 +513,18 @@ Here are some tracks you found: {json.dumps(all_tracks[:20])}"""
                             result["thought_process"] = thought_process
                             result["iterations"] = iteration + 1
                             
+                            # Emit complete event — keys must match usePipelineState.ts
+                            if self.on_iteration:
+                                import time
+                                elapsed_ms = int((time.time() - agent_start_time) * 1000)
+                                await self.on_iteration({
+                                    "event": "agent_complete",
+                                    "totalMs": elapsed_ms,          # was: total_latency_ms
+                                    "tokensBefore": total_tokens_before,  # NEW — raw chars
+                                    "tokensAfter": total_tokens_after,    # NEW — truncated chars
+                                    "timestamp": int(time.time() * 1000)
+                                })
+                                
                             return result
                         else:
                             # No JSON found, build response from gathered tracks

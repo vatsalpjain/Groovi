@@ -72,12 +72,13 @@ Groovi - AI-Powered Mood-Based Music Recommender
 
 ## Architecture (Quick Reference)
 
-- **Backend** (`backend/`): FastAPI application with modular services
-- **Frontend** (`frontend/`): React 18 + TypeScript + Vite
-- **Mood Analysis** (`services/mood_analyzer.py`): Groq LLM (Llama 4 Maverick) + VADER fallback
-- **Music Recommendations** (`services/song_recommender.py`): Multi-strategy Spotify search
-- **Audio Transcription** (`services/audio_transcriber.py`): Deepgram API integration
-- **Spotify Integration** (`services/spotify_client.py`): Spotipy wrapper for music data
+- **Backend** (`backend/`): FastAPI application with voice AI + agent services
+- **Frontend** (`frontend/`): React 18 + TypeScript + Vite + Tailwind CSS v4
+- **Voice AI** (`voice_ai/voice_assistant.py`): Wake word → VAD → STT → LLM → TTS state machine
+- **Music Agent** (`services/music_agent.py`): Groq LLM (Llama 3.3 70B) + MCP/Spotify tool calling
+- **VADER Fallback** (`services/vader_fallback.py`): Local sentiment analysis used when Groq is unavailable
+- **MCP Client** (`services/mcp_client.py`): stdio bridge to isolated Spotify MCP server
+- **Spotify Auth** (`services/spotify_auth.py`): OAuth2 callback and token management
 - **Config** (`config/settings.py`): Environment-based configuration with python-dotenv
 
 ## Code Conventions (Project-Specific)
@@ -144,25 +145,30 @@ from services.mood_analyzer import MoodAnalyzer
 - [README.md](./README.md): Full documentation, setup, and API reference
 - [main.py](./backend/main.py): FastAPI routes & application entry point
 - [settings.py](./backend/config/settings.py): Environment configuration
-- [mood_analyzer.py](./backend/services/mood_analyzer.py): AI mood analysis logic
-- [song_recommender.py](./backend/services/song_recommender.py): Spotify recommendation strategies
+- [voice_assistant.py](./backend/voice_ai/voice_assistant.py): Voice pipeline state machine
+- [music_agent.py](./backend/services/music_agent.py): ReAct agent with Groq + MCP tool calling
+- [vader_fallback.py](./backend/services/vader_fallback.py): VADER sentiment fallback
 - [App.tsx](./frontend/src/App.tsx): Main React component
 
 ### External Services
 
-- **Groq**: LLM for mood analysis (Llama 4 Maverick, temp=0.7)
-- **Spotify**: Music data via Spotipy (Client Credentials flow)
-- **Deepgram**: Speech-to-text for audio transcription
+- **Groq**: LLM for voice conversation + ReAct agent (Llama 3.3 70B, Llama 3.1 8B)
+- **Spotify**: Music data via MCP stdio client (Client Credentials flow)
+- **openWakeWord**: Wake word detection ("Hey Groovi")
+- **Silero VAD**: Local voice activity detection
+- **Faster-Whisper**: Local speech-to-text (base model)
+- **Piper TTS**: Local text-to-speech (ONNX)
 - **VADER**: Fallback sentiment analysis (offline, rule-based)
 
 ### Backend Services Layer
 
-| Service          | File                     | Purpose                            |
-| ---------------- | ------------------------ | ---------------------------------- |
-| MoodAnalyzer     | `mood_analyzer.py`     | Groq AI + VADER sentiment analysis |
-| SongRecommender  | `song_recommender.py`  | Multi-strategy Spotify search      |
-| SpotifyClient    | `spotify_client.py`    | Spotipy wrapper & authentication   |
-| AudioTranscriber | `audio_transcriber.py` | Deepgram audio-to-text             |
+| Service              | File                        | Purpose                                  |
+| -------------------- | --------------------------- | ---------------------------------------- |
+| VoiceAssistant       | `voice_assistant.py`      | Wake word→VAD→STT→LLM→TTS state machine |
+| MusicAgent           | `music_agent.py`          | ReAct agent with Groq + MCP tool calling |
+| SpotifyMCPClient     | `mcp_client.py`           | stdio bridge to Spotify MCP server       |
+| VaderFallback        | `vader_fallback.py`       | Sentiment analysis when Groq unavailable |
+| SpotifyAuth          | `spotify_auth.py`         | OAuth2 callback and token management     |
 
 ### API Endpoints
 
@@ -174,11 +180,16 @@ from services.mood_analyzer import MoodAnalyzer
 
 ### Frontend Components
 
-| Component     | File                  | Purpose                           |
-| ------------- | --------------------- | --------------------------------- |
-| App           | `App.tsx`           | Main UI, mood input, song display |
-| AudioRecorder | `AudioRecorder.tsx` | Browser microphone recording      |
-| AudioUploader | `AudioUploader.tsx` | Audio file upload handling        |
+| Component            | File                    | Purpose                                      |
+| -------------------- | ----------------------- | -------------------------------------------- |
+| App                  | `App.tsx`             | Root layout, voice toggle, pipeline toggle   |
+| VoiceInterface       | `VoiceInterface.tsx`  | Microphone capture, WebSocket, chat bubbles  |
+| PipelineView         | `pipeline/PipelineView.tsx` | Live pipeline panel container          |
+| PipelineNode         | `pipeline/PipelineNode.tsx` | Individual stage node (MIC/VAD/STT…)   |
+| SignalWire           | `pipeline/SignalWire.tsx`   | Animated text connector between nodes   |
+| AgentIterationLog    | `pipeline/AgentIterationLog.tsx` | ReAct loop live feed             |
+| LatencyBar           | `pipeline/LatencyBar.tsx`   | Per-stage timing bars                   |
+| StateBadge           | `pipeline/StateBadge.tsx`   | State machine pill indicator            |
 
 ### Anti-Patterns
 
