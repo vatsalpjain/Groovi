@@ -3,7 +3,6 @@ import { StateBadge } from './StateBadge';
 import { PipelineNode } from './PipelineNode';
 import { SignalWire } from './SignalWire';
 import { LatencyBar } from './LatencyBar';
-import { AgentIterationLog } from './AgentIterationLog';
 import { AgentStarView } from './AgentStarView';
 
 import {
@@ -156,35 +155,21 @@ export function PipelineView({ isOpen, onToggle }: PipelineViewProps) {
 
                         </div>
 
-                        {/* Logs & Latency */}
-                        <div className="flex-1 w-full max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6 min-h-0 relative">
-
-                            <div className="flex flex-col h-full rounded-xl overflow-hidden">
-                                <AgentIterationLog
-                                    iterations={iterations}
-                                    isComplete={isAgentDone}
-                                    totalTokensBefore={tokensBefore}
-                                    totalTokensAfter={tokensAfter}
-                                    totalMs={agentTotalMs}
-                                />
-                            </div>
-
-                            <div className="flex flex-col h-full justify-start items-center">
-                                <LatencyBar
-                                    sttMs={latency.sttMs}
-                                    llmMs={latency.llmMs}
-                                    ttsMs={latency.ttsMs}
-                                    totalMs={latency.totalMs}
-                                />
-                            </div>
-
+                        {/* Latency — full width */}
+                        <div className="flex-1 w-full max-w-3xl mx-auto flex items-start justify-center min-h-0">
+                            <LatencyBar
+                                sttMs={latency.sttMs}
+                                llmMs={latency.llmMs}
+                                ttsMs={latency.ttsMs}
+                                totalMs={latency.totalMs}
+                            />
                         </div>
                     </>
                 )}
 
                 {/* ═══════════════ TAB 2: Music Agent ═══════════════ */}
                 {activeTab === 'agent' && (
-                    <div className="flex-1 flex items-center justify-center min-h-0 overflow-auto">
+                    <div className="flex-1 flex items-center justify-center min-h-0 overflow-hidden py-2">
                         <AgentStarView
                             iterations={iterations}
                             isComplete={isAgentDone}

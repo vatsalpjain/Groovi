@@ -89,6 +89,10 @@ Examples:
         # Speech detection tracking - True when VAD detects active speech
         self.speech_detected: bool = False
         
+        # Post-TTS state: tells tts_complete handler what state to transition to
+        # None = default (LISTENING), "WAKE_WORD" = enter wake word mode after TTS
+        self._post_tts_state: str | None = None
+        
         # Conversation history for LLM context
         self.conversation_history: list[dict] = []
         
@@ -287,12 +291,15 @@ Examples:
                 response = "Pausing. Say 'Hey Groovi' when you're ready to continue."
                 # Send AI text to frontend for chat bubble display
                 await self.output_queue.put({"event": "response_text", "text": response})
+                # Tell tts_complete handler to enter WAKE_WORD after TTS finishes
+                self._post_tts_state = "WAKE_WORD"
                 await self.speak(response)
-                self._enter_wake_word_with_cooldown()
                 return
 
-            # Chat with LLM
+            # Chat with LLM — time the call so we can report latency
+            llm_start = time.time()
             response = await self._chat_with_llm(transcript)
+            llm_elapsed_ms = int((time.time() - llm_start) * 1000)
             
             # Check for music intent
             if response.startswith("[MUSIC]"):
@@ -361,14 +368,25 @@ Examples:
                 
                 # Send AI text to frontend for chat bubble display
                 await self.output_queue.put({"event": "response_text", "text": response})
+                # Tell tts_complete handler to enter WAKE_WORD after TTS finishes
+                self._post_tts_state = "WAKE_WORD"
                 # Speak fallback/result response if we didn't return early
                 await self.speak(response)
                 
             else:
+                # Normal (non-music) chat — emit LLM latency so the pipeline UI shows it
+                await self.output_queue.put({
+                    "event": "agent_complete",
+                    "totalMs": llm_elapsed_ms,
+                })
+                
                 # Send AI text to frontend for chat bubble display
                 await self.output_queue.put({"event": "response_text", "text": response})
                 # Normal chat response
                 await self.speak(response)
+                
+                # Emit response_complete so the frontend can calculate TTS + Total latency
+                await self.output_queue.put({"event": "response_complete"})
                 
         except Exception as e:
             logger.error(f"Error processing transcript: {e}")
@@ -552,9 +570,16 @@ Examples:
 
             if self.state == "SPEAKING" and self.tts_playing:
                 self.tts_playing = False
-                self._switch_to_listening()
-                logger.info("🔊 Frontend TTS playback complete → LISTENING")
-                await self.output_queue.put({"event": "listening"})
+                
+                if self._post_tts_state == "WAKE_WORD":
+                    self._post_tts_state = None
+                    self._enter_wake_word_with_cooldown()
+                    logger.info("🔊 Frontend TTS playback complete → WAKE_WORD")
+                    await self.output_queue.put({"event": "idle_timeout"})
+                else:
+                    self._switch_to_listening()
+                    logger.info("🔊 Frontend TTS playback complete → LISTENING")
+                    await self.output_queue.put({"event": "listening"})
             else:
                 logger.warning(f"Received tts_complete in unexpected state: {self.state}")
         else:

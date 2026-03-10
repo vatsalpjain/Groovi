@@ -4,18 +4,18 @@ import type { AgentIteration } from '../../hooks/usePipelineState';
 
 // 4 MCP tools the agent can call, arranged around the center AGENT node
 const TOOL_NODES = [
-    { id: 'search_tracks', label: 'Search\nTracks', icon: FaSearch, angle: -90 }, // top
-    { id: 'search_artist', label: 'Search\nArtist', icon: FaUser, angle: 0 }, // right
-    { id: 'get_playlist_tracks', label: 'Playlist\nTracks', icon: FaMusic, angle: 90 }, // bottom
-    { id: 'search_playlists', label: 'Search\nPlaylists', icon: FaListUl, angle: 180 }, // left
+    { id: 'search_tracks', label: 'Search\nTracks', icon: FaSearch, angle: -15 }, // top-right
+    { id: 'search_artist', label: 'Search\nArtist', icon: FaUser, angle: 15 }, // bottom-right
+    { id: 'get_playlist_tracks', label: 'Playlist\nTracks', icon: FaMusic, angle: 165 }, // bottom-left
+    { id: 'search_playlists', label: 'Search\nPlaylists', icon: FaListUl, angle: -165 }, // top-left
 ] as const;
 
 // Radius of the orbital circle (px)
-const ORBIT_RADIUS = 120;
+const ORBIT_RADIUS = 220;
 // Center node size
-const CENTER_SIZE = 64;
+const CENTER_SIZE = 54;
 // Orbital node size
-const ORBITAL_SIZE = 48;
+const ORBITAL_SIZE = 40;
 
 export interface AgentStarViewProps {
     iterations: AgentIteration[];
@@ -76,18 +76,22 @@ export function AgentStarView({
         : 0;
 
     return (
-        <div className="flex flex-col items-center w-full h-full gap-4">
+        <div className="flex flex-col items-center w-full h-full gap-2">
 
             {/* Star Graph Container */}
             <div
                 className="relative flex-shrink-0"
-                style={{ width: ORBIT_RADIUS * 2 + ORBITAL_SIZE + 40, height: ORBIT_RADIUS * 2 + ORBITAL_SIZE + 40 }}
+                style={{
+                    width: ORBIT_RADIUS * 2 + ORBITAL_SIZE + 60,
+                    // Tightly wrap the height of the nodes, minimal padding for labels
+                    height: (Math.sin(15 * Math.PI / 180) * ORBIT_RADIUS * 2) + ORBITAL_SIZE + 40
+                }}
             >
                 {/* SVG for radial lines */}
                 <svg className="absolute inset-0 w-full h-full pointer-events-none">
                     {TOOL_NODES.map((tool) => {
-                        const cx = (ORBIT_RADIUS * 2 + ORBITAL_SIZE + 40) / 2;
-                        const cy = (ORBIT_RADIUS * 2 + ORBITAL_SIZE + 40) / 2;
+                        const cx = (ORBIT_RADIUS * 2 + ORBITAL_SIZE + 60) / 2;
+                        const cy = ((Math.sin(15 * Math.PI / 180) * ORBIT_RADIUS * 2) + ORBITAL_SIZE + 40) / 2;
                         const rad = (tool.angle * Math.PI) / 180;
                         const tx = cx + ORBIT_RADIUS * Math.cos(rad);
                         const ty = cy + ORBIT_RADIUS * Math.sin(rad);
@@ -185,9 +189,13 @@ export function AgentStarView({
                 {/* Orbital tool nodes */}
                 {TOOL_NODES.map((tool) => {
                     const rad = (tool.angle * Math.PI) / 180;
-                    const halfContainer = (ORBIT_RADIUS * 2 + ORBITAL_SIZE + 40) / 2;
-                    const left = halfContainer + ORBIT_RADIUS * Math.cos(rad) - ORBITAL_SIZE / 2;
-                    const top = halfContainer + ORBIT_RADIUS * Math.sin(rad) - ORBITAL_SIZE / 2;
+                    const containerWidth = ORBIT_RADIUS * 2 + ORBITAL_SIZE + 60;
+                    const containerHeight = (Math.sin(15 * Math.PI / 180) * ORBIT_RADIUS * 2) + ORBITAL_SIZE + 40;
+                    const cx = containerWidth / 2;
+                    const cy = containerHeight / 2;
+
+                    const left = cx + ORBIT_RADIUS * Math.cos(rad) - ORBITAL_SIZE / 2;
+                    const top = cy + ORBIT_RADIUS * Math.sin(rad) - ORBITAL_SIZE / 2;
                     const state = toolStates[tool.id];
                     const Icon = tool.icon;
 

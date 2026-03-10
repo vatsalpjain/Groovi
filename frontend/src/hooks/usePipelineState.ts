@@ -245,6 +245,28 @@ export function usePipelineState(): PipelineState {
             setNodeStates(prev => ({ ...prev, wake: 'active' }));
             break;
 
+          // Normal (non-music) chat completed — calculate TTS + Total latency
+          case 'response_complete': {
+            const ttsTime = timestamps.current.ttsStart
+              ? Date.now() - timestamps.current.ttsStart
+              : undefined;
+            const totalTime = timestamps.current.listenStart
+              ? Date.now() - timestamps.current.listenStart
+              : undefined;
+
+            setNodeStates(prev => ({ ...prev, tts: 'done' }));
+            if (ttsTime !== undefined) {
+              setNodeLatencies(prev => ({ ...prev, tts: ttsTime }));
+              setLatency(prev => ({ ...prev, ttsMs: ttsTime }));
+            }
+            if (totalTime !== undefined) {
+              setLatency(prev => ({ ...prev, totalMs: totalTime }));
+            }
+            setCurrentState('WAKE_WORD');
+            setNodeStates(prev => ({ ...prev, wake: 'active' }));
+            break;
+          }
+
           // ── Error / Fallback ───────────────────────────────────────────
           case 'error':
             setCurrentState('ERROR');
