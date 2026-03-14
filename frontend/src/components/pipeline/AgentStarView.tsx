@@ -20,17 +20,11 @@ const ORBITAL_SIZE = 40;
 export interface AgentStarViewProps {
     iterations: AgentIteration[];
     isComplete: boolean;
-    totalTokensBefore?: number;
-    totalTokensAfter?: number;
-    totalMs?: number;
 }
 
 export function AgentStarView({
     iterations,
     isComplete,
-    totalTokensBefore,
-    totalTokensAfter,
-    totalMs
 }: AgentStarViewProps) {
 
     // Determine state per-tool: which tools were called and in what order
@@ -67,13 +61,6 @@ export function AgentStarView({
     const currentIteration = iterations.length;
     const maxIterations = 5;
 
-    // Token savings
-    const savedTokens = (totalTokensBefore && totalTokensAfter)
-        ? totalTokensBefore - totalTokensAfter
-        : 0;
-    const savingsPercent = totalTokensBefore
-        ? Math.round((savedTokens / totalTokensBefore) * 100)
-        : 0;
 
     return (
         <div className="flex flex-col items-center w-full h-full gap-2">
@@ -254,23 +241,6 @@ export function AgentStarView({
                 })}
             </div>
 
-            {/* Completion Summary */}
-            {isComplete && iterations.length > 0 && (
-                <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 border border-white/10 animate-fade-in">
-                    <svg className="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span className="text-xs text-white/50">
-                        {iterations.length} tool calls
-                        {totalMs && <span className="text-white/40 ml-1">· {totalMs}ms</span>}
-                        {savingsPercent > 0 && (
-                            <span className="text-green-400 ml-1">
-                                · Tokens: {totalTokensBefore?.toLocaleString()} → {totalTokensAfter?.toLocaleString()} ({savingsPercent}% saved)
-                            </span>
-                        )}
-                    </span>
-                </div>
-            )}
 
             {/* Waiting state */}
             {iterations.length === 0 && !isComplete && (

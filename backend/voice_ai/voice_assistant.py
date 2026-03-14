@@ -159,9 +159,14 @@ Examples:
                 # Notify the pipeline UI that TTS is starting.
                 await self.output_queue.put({"event": "tts_start"})
                 
-                # Stream audio chunks as binary
+                # Stream audio chunks as binary (timed for UI latency display)
+                tts_start = time.time()
                 async for chunk in self.tts.stream(text):
                     await self.output_queue.put({"event": "audio", "data": chunk})
+                tts_ms = int((time.time() - tts_start) * 1000)
+                
+                # Notify frontend of actual TTS synthesis time
+                await self.output_queue.put({"event": "tts_done", "ttsMs": tts_ms})
                 
                 # Signal local completion (frontend will send tts_complete)
                 self.tts_queue.task_done()
@@ -268,12 +273,14 @@ Examples:
                 self.state = "PROCESSING"
                 self.last_activity_time = time.time()
                 
-                # Transcribe
+                # Transcribe (timed for UI latency display)
+                stt_start = time.time()
                 transcript = self.stt.transcribe()
+                stt_ms = int((time.time() - stt_start) * 1000)
                 self.stt.clear_buffer()
                 
                 if transcript:
-                    await self.output_queue.put({"event": "transcript", "text": transcript})
+                    await self.output_queue.put({"event": "transcript", "text": transcript, "sttMs": stt_ms})
                     # Spawn background task for processing
                     asyncio.create_task(self._process_transcript(transcript))
                 else:

@@ -20,7 +20,10 @@ export function SongList({ songs, currentTrackId, onSongSelect, theme = 'dark' }
     ]
 
     return (
-        <div className="animate-fade-in space-y-2 max-h-[480px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-purple-500/30 scrollbar-track-transparent">
+        <div 
+            className="animate-fade-in space-y-2 max-h-[480px] overflow-y-auto pr-2 custom-scrollbar"
+            data-lenis-prevent="true"
+        >
             {songs.map((song, index) => {
                 // Extract track ID from URI (spotify:track:XXXXX)
                 const trackId = song.uri.split(':')[2]

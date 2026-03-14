@@ -7,6 +7,8 @@ export interface AgentIteration {
   resultSummary: string;
   latencyMs: number;
   status: 'running' | 'done';
+  tokensBefore?: number;  // Per-call raw chars from MCP result
+  tokensAfter?: number;   // Per-call truncated chars sent to LLM
 }
 
 export interface PipelineState {
@@ -148,7 +150,8 @@ export function usePipelineState(): PipelineState {
 
           // ── STT ────────────────────────────────────────────────────────
           case 'transcript': {
-            const sttTime = Date.now() - timestamps.current.listenStart;
+            // Use backend-provided STT processing time (Whisper only, excludes speaking)
+            const sttTime = data.sttMs || 0;
             timestamps.current.sttDone = Date.now();
             timestamps.current.agentStart = Date.now();
             
@@ -185,7 +188,9 @@ export function usePipelineState(): PipelineState {
                 args: data.args || {},
                 resultSummary: `${data.resultCount} results`,
                 latencyMs: data.latencyMs,
-                status: 'done'
+                status: 'done',
+                tokensBefore: data.tokensBefore,  // Per-call raw chars
+                tokensAfter: data.tokensAfter,     // Per-call truncated chars
               }
             ]);
             break;
@@ -218,21 +223,31 @@ export function usePipelineState(): PipelineState {
             setCurrentState('SPEAKING');
             setNodeStates(prev => ({ ...prev, agent: 'done', tts: 'active' }));
             setWireStates(prev => ({ ...prev, 'agent-tts': 'transmitting' }));
-            timestamps.current.ttsStart = Date.now();
             setTimeout(() => {
               setWireStates(prev => ({ ...prev, 'agent-tts': 'done' }));
             }, 600);
             break;
 
+          // ── TTS done (actual synthesis time from backend) ─────────────
+          case 'tts_done': {
+            // Backend sends actual Piper TTS synthesis time (excludes playback)
+            const ttsTime = data.ttsMs || 0;
+            setNodeLatencies(prev => ({ ...prev, tts: ttsTime }));
+            setLatency(prev => {
+              const updated = { ...prev, ttsMs: ttsTime };
+              // Compute total as sum of STT + LLM + TTS
+              if (updated.sttMs !== undefined && updated.llmMs !== undefined) {
+                updated.totalMs = updated.sttMs + updated.llmMs + ttsTime;
+              }
+              return updated;
+            });
+            break;
+          }
+
           // ── Songs result ───────────────────────────────────────────────
           case 'songs': {
-            const ttsTime = Date.now() - timestamps.current.ttsStart;
-            const totalTime = Date.now() - timestamps.current.listenStart;
-
-            // TTS filler playback is done; mark it as done and lock in latencies
+            // Mark TTS node as done (latency already set by tts_done event)
             setNodeStates(prev => ({ ...prev, tts: 'done' }));
-            setNodeLatencies(prev => ({ ...prev, tts: ttsTime }));
-            setLatency(prev => ({ ...prev, ttsMs: ttsTime, totalMs: totalTime }));
             setIsAgentDone(true);
             // Keep SPEAKING so the badge reads correctly until music_playing fires
             break;
@@ -245,23 +260,17 @@ export function usePipelineState(): PipelineState {
             setNodeStates(prev => ({ ...prev, wake: 'active' }));
             break;
 
-          // Normal (non-music) chat completed — calculate TTS + Total latency
+          // Normal (non-music) chat completed — TTS latency already set by tts_done
           case 'response_complete': {
-            const ttsTime = timestamps.current.ttsStart
-              ? Date.now() - timestamps.current.ttsStart
-              : undefined;
-            const totalTime = timestamps.current.listenStart
-              ? Date.now() - timestamps.current.listenStart
-              : undefined;
-
             setNodeStates(prev => ({ ...prev, tts: 'done' }));
-            if (ttsTime !== undefined) {
-              setNodeLatencies(prev => ({ ...prev, tts: ttsTime }));
-              setLatency(prev => ({ ...prev, ttsMs: ttsTime }));
-            }
-            if (totalTime !== undefined) {
-              setLatency(prev => ({ ...prev, totalMs: totalTime }));
-            }
+            // Compute total if we don't have it yet (STT + LLM + TTS)
+            setLatency(prev => {
+              const updated = { ...prev };
+              if (updated.totalMs === undefined && updated.sttMs !== undefined && updated.llmMs !== undefined && updated.ttsMs !== undefined) {
+                updated.totalMs = updated.sttMs + updated.llmMs + updated.ttsMs;
+              }
+              return updated;
+            });
             setCurrentState('WAKE_WORD');
             setNodeStates(prev => ({ ...prev, wake: 'active' }));
             break;

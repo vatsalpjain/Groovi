@@ -10,7 +10,7 @@ import { AIOrb, type OrbState } from './components/AIOrb'
 import { TTSButton } from './components/TTSButton'
 import { SongList } from './components/SongList'
 import { SpotifyAuth } from './components/SpotifyAuth'
-import { SpotifyPlayer } from './components/SpotifyPlayer'
+import { SpotifyPlayer, type SpotifyPlayerHandle } from './components/SpotifyPlayer'
 import { SpotifyEmbed } from './components/SpotifyEmbed'
 import { ThoughtProcess } from './components/ThoughtProcess'
 import { VoiceChatBubbles, type ChatMessage } from './components/VoiceChatBubbles'
@@ -46,6 +46,9 @@ function App() {
   // Ref for sendMessage — needed inside onAudio callback (defined before hook returns)
   const sendMessageRef = useRef<(msg: object) => void>(() => { })
 
+  // Ref for SpotifyPlayer — allows pausing playback on wake word detection
+  const spotifyPlayerRef = useRef<SpotifyPlayerHandle>(null)
+
   // Voice chat bubble messages — tracks conversation in voice mode
   const [voiceChatMessages, setVoiceChatMessages] = useState<ChatMessage[]>([])
   const messageIdRef = useRef(0) // Auto-incrementing ID for unique keys
@@ -77,6 +80,8 @@ function App() {
         setVoiceReady(true)
         setOrbState('idle') // Waiting for wake word
       } else if (event.event === 'wake_word_detected') {
+        // Pause Spotify playback so assistant can listen without music interference
+        spotifyPlayerRef.current?.pause()
         setOrbState('recording') // User said "Hey Groovi"
       } else if (event.event === 'listening') {
         setOrbState('recording') // Listening for speech
@@ -106,6 +111,13 @@ function App() {
       } else if (event.event === 'response') {
         // Agent responded
         setOrbState('complete')
+      } else if (event.event === 'music_playing' || event.event === 'response_complete') {
+        // Backend finished processing and returned to WAKE_WORD state
+        setOrbState('complete')
+        // Show the green success state for 2 seconds, then return to idle (WAKE_WORD)
+        setTimeout(() => {
+          setOrbState(current => current === 'complete' ? 'idle' : current)
+        }, 2000)
       } else if (event.event === 'tts_interrupted' || event.event === 'interrupted') {
         // User interrupted - stop audio immediately
         if (currentAudioRef.current) {
@@ -628,6 +640,7 @@ function App() {
       {/* Spotify Player - Full playback controls (when authenticated and SDK working) */}
       {isSpotifyConnected && songs.length > 0 && !sdkFailed && (
         <SpotifyPlayer
+          ref={spotifyPlayerRef}
           trackUris={trackUris}
           isAuthenticated={isSpotifyConnected}
           startTrackIndex={selectedTrackIndex >= 0 ? selectedTrackIndex : 0}

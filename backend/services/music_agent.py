@@ -434,8 +434,11 @@ Here are some tracks you found: {json.dumps(all_tracks[:20])}"""
                             "arguments": arguments
                         })
                         
-                        # Execute the tool
+                        # Execute the tool (timed for UI latency display)
+                        import time as _time
+                        _tool_start = _time.time()
                         result = await self.execute_tool(tool_name, arguments)
+                        tool_latency_ms = int((_time.time() - _tool_start) * 1000)
                         
                         # Collect tracks from results (BEFORE truncation - we need full data)
                         if "tracks" in result:
@@ -466,9 +469,11 @@ Here are some tracks you found: {json.dumps(all_tracks[:20])}"""
                                 "event": "agent_iteration",
                                 "iteration": iteration + 1,
                                 "tool": tool_name,
-                                "args": arguments,          # was: arguments
-                                "resultCount": truncated_result.get('count', 0),  # was: result_summary
-                                "latencyMs": 0,             # was: latency_ms
+                                "args": arguments,
+                                "resultCount": truncated_result.get('count', 0),
+                                "latencyMs": tool_latency_ms,
+                                "tokensBefore": raw_chars,   # Per-call raw chars from MCP result
+                                "tokensAfter": trunc_chars,  # Per-call truncated chars sent to LLM
                                 "timestamp": int(time.time() * 1000)
                             })
                 

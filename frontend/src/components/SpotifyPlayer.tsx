@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, forwardRef, useImperativeHandle } from 'react'
 
 // MCP Server URL
 const MCP_URL = 'http://localhost:5000'
@@ -8,6 +8,8 @@ interface SpotifyPlayer {
     connect(): Promise<boolean>
     disconnect(): void
     togglePlay(): Promise<void>
+    pause(): Promise<void>       // Idempotent pause — safe to call when already paused
+    resume(): Promise<void>      // Idempotent resume — safe to call when already playing
     nextTrack(): Promise<void>
     previousTrack(): Promise<void>
     seek(position_ms: number): Promise<void>
@@ -64,6 +66,12 @@ interface TrackInfo {
     duration: number
 }
 
+// Public handle exposed to parent via ref — allows external playback control
+export interface SpotifyPlayerHandle {
+    pause: () => void   // Idempotent: safe to call when already paused
+    resume: () => void  // Idempotent: safe to call when already playing
+}
+
 /**
  * SpotifyPlayer - Full playback control using Web Playback SDK
  * 
@@ -73,8 +81,9 @@ interface TrackInfo {
  * - Volume control
  * - Current track display
  * - Queue support (auto-plays next track)
+ * - External pause/resume via ref (for wake word interruption)
  */
-export function SpotifyPlayer({ trackUris, isAuthenticated, startTrackIndex = 0, onTrackChange, onPlaybackFailed }: SpotifyPlayerProps) {
+export const SpotifyPlayer = forwardRef<SpotifyPlayerHandle, SpotifyPlayerProps>(function SpotifyPlayer({ trackUris, isAuthenticated, startTrackIndex = 0, onTrackChange, onPlaybackFailed }, ref) {
     const [player, setPlayer] = useState<SpotifyPlayer | null>(null)
     const [deviceId, setDeviceId] = useState<string | null>(null)
     const [isReady, setIsReady] = useState(false)
@@ -92,6 +101,18 @@ export function SpotifyPlayer({ trackUris, isAuthenticated, startTrackIndex = 0,
     const progressInterval = useRef<number | null>(null)
     const hasStartedPlayback = useRef(false)  // Prevent re-triggering playback on re-renders
     const lastStartTrackIndex = useRef(startTrackIndex)  // Track user-initiated track changes
+
+    // Expose pause/resume to parent (e.g. App.tsx) for wake word interruption
+    useImperativeHandle(ref, () => ({
+        pause: () => {
+            // Use SDK's native pause() — idempotent, no-op when already paused
+            player?.pause().catch((err: unknown) => console.warn('Spotify pause failed:', err))
+        },
+        resume: () => {
+            // Use SDK's native resume() — idempotent, no-op when already playing
+            player?.resume().catch((err: unknown) => console.warn('Spotify resume failed:', err))
+        }
+    }), [player])
 
     // Load Spotify Web Playback SDK
     useEffect(() => {
@@ -659,8 +680,8 @@ export function SpotifyPlayer({ trackUris, isAuthenticated, startTrackIndex = 0,
                             </button>
                         </div>
 
-                        {/* Center: Controls */}
-                        <div className="flex flex-col items-center gap-1">
+                        {/* Center: Controls — flex-1 to match left/right for true centering */}
+                        <div className="flex flex-col items-center gap-1 flex-1">
                             {/* Control buttons */}
                             <div className="flex items-center gap-4">
                                 {/* Shuffle */}
@@ -811,4 +832,4 @@ export function SpotifyPlayer({ trackUris, isAuthenticated, startTrackIndex = 0,
             </div>
         </div>
     )
-}
+})

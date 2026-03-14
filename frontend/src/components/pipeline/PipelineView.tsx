@@ -4,6 +4,7 @@ import { PipelineNode } from './PipelineNode';
 import { SignalWire } from './SignalWire';
 import { LatencyBar } from './LatencyBar';
 import { AgentStarView } from './AgentStarView';
+import { AgentIterationLog } from './AgentIterationLog';
 
 import {
     FaWaveSquare,
@@ -29,8 +30,6 @@ export function PipelineView({ isOpen, onToggle }: PipelineViewProps) {
         activeTab,
         setActiveTab,
         isAgentDone,
-        tokensBefore,
-        tokensAfter,
         agentTotalMs,
         latency,
     } = usePipelineState();
@@ -167,16 +166,24 @@ export function PipelineView({ isOpen, onToggle }: PipelineViewProps) {
                     </>
                 )}
 
-                {/* ═══════════════ TAB 2: Music Agent ═══════════════ */}
+                {/* ═══════════════ TAB 2: Music Agent (60/40 two-column) ═══════════════ */}
                 {activeTab === 'agent' && (
-                    <div className="flex-1 flex items-center justify-center min-h-0 overflow-hidden py-2">
-                        <AgentStarView
-                            iterations={iterations}
-                            isComplete={isAgentDone}
-                            totalTokensBefore={tokensBefore}
-                            totalTokensAfter={tokensAfter}
-                            totalMs={agentTotalMs}
-                        />
+                    <div className="flex-1 flex gap-4 min-h-0 overflow-hidden py-2">
+                        {/* Left: Star Graph (60%) */}
+                        <div className="w-[60%] flex items-center justify-center min-h-0">
+                            <AgentStarView
+                                iterations={iterations}
+                                isComplete={isAgentDone}
+                            />
+                        </div>
+                        {/* Right: Tool Call Log (40%) */}
+                        <div className="w-[40%] flex flex-col min-h-0">
+                            <AgentIterationLog
+                                iterations={iterations}
+                                isComplete={isAgentDone}
+                                totalMs={agentTotalMs}
+                            />
+                        </div>
                     </div>
                 )}
 
